@@ -110,7 +110,7 @@ enum ExportService {
             return try PortableLibraryService.exportPackage(recording: recording)
         }
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("TranscriptPipelineExports", isDirectory: true)
+            .appendingPathComponent("WhatWasSaidExports", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let safeTitle = recording.title
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
@@ -172,14 +172,14 @@ enum ExportService {
         var lines = [
             "BEGIN:VCALENDAR",
             "VERSION:2.0",
-            "PRODID:-//Transcript Pipeline//Action Items//EN",
+            "PRODID:-//What Was Said//Action Items//EN",
             "CALSCALE:GREGORIAN"
         ]
         let timestamp = icalTimestamp(Date())
         for item in items {
             lines += [
                 "BEGIN:VTODO",
-                "UID:\(item.id.uuidString)@transcript-pipeline",
+                "UID:\(item.id.uuidString)@what-was-said",
                 "DTSTAMP:\(timestamp)",
                 "SUMMARY:\(icalEscape(item.task))",
                 "DESCRIPTION:\(icalEscape("From \(recording.title)\(item.owner.isEmpty ? "" : " · Owner: \(item.owner)")\(item.dueDate.isEmpty ? "" : " · Due: \(item.dueDate)")"))",

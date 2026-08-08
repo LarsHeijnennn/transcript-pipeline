@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_DIR="${0:A:h:h}"
-APP_DIR="$PROJECT_DIR/Release/Transcript Pipeline.app"
+APP_DIR="$PROJECT_DIR/Release/What Was Said.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 
 if [[ -z "${DEVELOPER_DIR:-}" && -d /Applications/Xcode-beta.app/Contents/Developer ]]; then

@@ -31,7 +31,7 @@ struct OnboardingView: View {
                     Button(page == 1 ? "Continue" : "Get Started") { page += 1 }
                         .liquidGlassButton(prominent: true)
                 } else {
-                    Button("Open Transcript Pipeline") {
+                    Button("Open What Was Said") {
                         settings.hasAcknowledgedPrivacy = true
                         dismiss()
                     }
@@ -48,7 +48,7 @@ struct OnboardingView: View {
         VStack(spacing: 24) {
             SymbolBadge(symbol: "waveform.and.mic", size: 72)
             Text("Your recordings stay yours").font(.largeTitle.weight(.semibold))
-            Text("Transcript Pipeline keeps audio, transcripts, edits, notes, and chat in a managed library on this Mac. Nothing is uploaded when you record or import.")
+            Text("What Was Said keeps audio, transcripts, edits, notes, and chat in a managed library on this Mac. Nothing is uploaded when you record or import.")
                 .font(.title3)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -68,7 +68,7 @@ struct OnboardingView: View {
                 SymbolBadge(symbol: "key", size: 52)
                 VStack(alignment: .leading) {
                     Text("Connect OpenAI").font(.largeTitle.weight(.semibold))
-                    Text("Bring your own API account; there is no Transcript Pipeline account.")
+                    Text("Bring your own API account; there is no What Was Said account.")
                         .foregroundStyle(.secondary)
                 }
             }

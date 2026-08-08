@@ -42,7 +42,7 @@ struct OpenAIProvider: TranscriptionProvider, InsightProvider, ChatProvider {
 
         let boundary = "Boundary-\(UUID().uuidString)"
         let bodyURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("TranscriptPipelineMultipart-\(UUID().uuidString).body")
+            .appendingPathComponent("WhatWasSaidMultipart-\(UUID().uuidString).body")
         let multipart = try MultipartFormFile(boundary: boundary, outputURL: bodyURL)
         defer { try? FileManager.default.removeItem(at: bodyURL) }
         try multipart.addField(name: "model", value: AppConfiguration.transcriptionModel)
@@ -262,7 +262,7 @@ struct OpenAIProvider: TranscriptionProvider, InsightProvider, ChatProvider {
 
     private func addHeaders(to request: inout URLRequest, apiKey: String) {
         request.setValue("Bearer \(apiKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization")
-        request.setValue("TranscriptPipeline/1.2", forHTTPHeaderField: "User-Agent")
+        request.setValue("WhatWasSaid/1.3", forHTTPHeaderField: "User-Agent")
     }
 
     private func send(_ request: URLRequest, uploadFileURL: URL? = nil) async throws -> Data {

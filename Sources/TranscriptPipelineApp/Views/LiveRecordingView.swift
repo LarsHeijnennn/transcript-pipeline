@@ -121,7 +121,7 @@ struct LiveRecordingView: View {
                         "Recording is saved locally first. Nothing goes to OpenAI until you later click Process.",
                         systemImage: "lock.shield"
                     )
-                    Text("For Mac app audio, Apple’s system picker asks you to choose the Teams, Zoom, FaceTime, or other app/window. Transcript Pipeline excludes its own audio.")
+                    Text("For Mac app audio, Apple’s system picker asks you to choose the Teams, Zoom, FaceTime, or other app/window. What Was Said excludes its own audio.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Toggle(

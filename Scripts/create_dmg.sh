@@ -2,11 +2,11 @@
 set -euo pipefail
 
 PROJECT_DIR="${0:A:h:h}"
-APP_DIR="$PROJECT_DIR/Release/Transcript Pipeline.app"
+APP_DIR="$PROJECT_DIR/Release/What Was Said.app"
 if [[ -n "${DEVELOPER_ID_APPLICATION:-}" ]]; then
-  DMG_PATH="$PROJECT_DIR/Release/Transcript-Pipeline.dmg"
+  DMG_PATH="$PROJECT_DIR/Release/What-Was-Said.dmg"
 else
-  DMG_PATH="$PROJECT_DIR/Release/Transcript-Pipeline-unsigned.dmg"
+  DMG_PATH="$PROJECT_DIR/Release/What-Was-Said-unsigned.dmg"
 fi
 STAGING_DIR="$PROJECT_DIR/Release/dmg-staging"
 
@@ -21,7 +21,7 @@ ln -s /Applications "$STAGING_DIR/Applications"
 
 rm -f "$DMG_PATH"
 diskutil image create from \
-  --volumeName "Transcript Pipeline" \
+  --volumeName "What Was Said" \
   --format UDZO \
   "$STAGING_DIR" \
   "$DMG_PATH"

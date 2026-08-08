@@ -1,4 +1,4 @@
-# Transcript Pipeline
+# What Was Said
 
 Native, local-first macOS app for recording or importing meeting audio and turning it into diarized transcripts, structured notes, action items, and grounded recording chat.
 
@@ -28,8 +28,8 @@ swift test
 
 Open `Package.swift` in Xcode for development. The release scripts create:
 
-- `Release/Transcript Pipeline.app`
-- `Release/Transcript-Pipeline-unsigned.dmg`
+- `Release/What Was Said.app`
+- `Release/What-Was-Said-unsigned.dmg`
 
 The app is ad-hoc signed only so sandbox entitlements work. It is not Developer ID signed or notarized. On another Mac, the recipient must right-click the app, choose **Open**, and confirm the Gatekeeper warning.
 
@@ -53,7 +53,7 @@ Choose **Record** in the Library toolbar or press `⇧⌘R`:
 
 Combined mode requires both tracks. While recording, the app confirms when Mac-app audio samples are arriving. If either the microphone or selected-app track is missing or unreadable, it shows an error and does not silently save an incomplete recording.
 
-The first recording asks for macOS Microphone permission. For Mac-app audio, Apple’s system picker authorizes only the app or window selected for that capture session, so a separate full-screen grant is normally unnecessary. If macOS blocks either source, review Transcript Pipeline under **System Settings → Privacy & Security → Microphone** and **Screen & System Audio Recording**, then reopen the app.
+The first recording asks for macOS Microphone permission. For Mac-app audio, Apple’s system picker authorizes only the app or window selected for that capture session, so a separate full-screen grant is normally unnecessary. If macOS blocks either source, review What Was Said under **System Settings → Privacy & Security → Microphone** and **Screen & System Audio Recording**, then reopen the app.
 
 Recording is local. Stopping creates a normal library item; nothing is uploaded until **Process** is clicked. A Mac app cannot tap a cellular call that exists only on an iPhone. Route the call through the Mac, use informed speakerphone recording, or export a recording made through an available iPhone feature and import it afterward.
 

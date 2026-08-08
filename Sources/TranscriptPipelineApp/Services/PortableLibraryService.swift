@@ -8,7 +8,7 @@ enum PortableLibraryError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidPackage: "This is not a valid Transcript Pipeline package."
+        case .invalidPackage: "This is not a valid What Was Said package."
         case .unsupportedVersion(let version): "This package uses unsupported archive version \(version)."
         case .missingAudio: "The package does not contain its recording audio."
         }
@@ -75,7 +75,7 @@ enum PortableLibraryService {
 
     static func exportPackage(recording: RecordingRecord) throws -> URL {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("TranscriptPipelineExports", isDirectory: true)
+            .appendingPathComponent("WhatWasSaidExports", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let safeTitle = safeFilename(recording.title)
         let package = root.appendingPathComponent("\(safeTitle).\(AppConfiguration.archiveExtension)", isDirectory: true)
@@ -107,7 +107,7 @@ enum PortableLibraryService {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd-HHmm"
         let destination = FileManager.default.temporaryDirectory
-            .appendingPathComponent("Transcript-Pipeline-Backup-\(formatter.string(from: Date()))", isDirectory: true)
+            .appendingPathComponent("What-Was-Said-Backup-\(formatter.string(from: Date()))", isDirectory: true)
         if FileManager.default.fileExists(atPath: destination.path) {
             try FileManager.default.removeItem(at: destination)
         }

@@ -43,7 +43,7 @@ struct UpdateService: Sendable {
 
     func checkForUpdate(currentVersion: String? = nil) async throws -> AppUpdateInfo? {
         var request = URLRequest(url: AppConfiguration.releasesAPIURL)
-        request.setValue("TranscriptPipeline/1.3", forHTTPHeaderField: "User-Agent")
+        request.setValue("WhatWasSaid/1.3", forHTTPHeaderField: "User-Agent")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {

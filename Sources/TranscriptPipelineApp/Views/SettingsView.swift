@@ -29,7 +29,7 @@ struct SettingsView: View {
                 HStack(spacing: 14) {
                     SymbolBadge(symbol: "slider.horizontal.3", size: 46)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Transcript Pipeline").font(.title2.weight(.semibold))
+                        Text(AppConfiguration.displayName).font(.title2.weight(.semibold))
                         Text("Private local library, bring-your-own OpenAI account")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -263,7 +263,7 @@ struct SettingsView: View {
                 maintenanceMessage = "Version \(update.version) is available. Opening its release page."
                 NSWorkspace.shared.open(update.downloadURL ?? update.releaseURL)
             } else {
-                maintenanceMessage = "Transcript Pipeline is up to date."
+                maintenanceMessage = "What Was Said is up to date."
             }
         } catch {
             maintenanceMessage = error.localizedDescription

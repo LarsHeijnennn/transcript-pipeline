@@ -204,7 +204,7 @@ final class PersistenceAndExportTests: XCTestCase {
 
     func testMultipartUploadBodyStreamsToPrivateTemporaryFile() throws {
         let temporary = FileManager.default.temporaryDirectory
-            .appendingPathComponent("TranscriptPipelineMultipartTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("WhatWasSaidMultipartTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporary) }
 

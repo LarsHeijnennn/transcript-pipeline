@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 
 enum AppConfiguration {
-    static let displayName = "Transcript Pipeline"
+    static let displayName = "What Was Said"
     static let bundleIdentifier = "nl.larsheijnen.TranscriptPipeline"
     static let keychainService = bundleIdentifier
     static let keychainAccount = "openai-api-key"

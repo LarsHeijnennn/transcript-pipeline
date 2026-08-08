@@ -75,7 +75,7 @@ enum LiveRecordingError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .microphoneDenied:
-            "Microphone access is required. Enable Transcript Pipeline in System Settings → Privacy & Security → Microphone."
+            "Microphone access is required. Enable What Was Said in System Settings → Privacy & Security → Microphone."
         case .microphoneUnavailable:
             "The selected microphone is unavailable. Check the Mac’s Sound input settings and try again."
         case .contentSelectionCancelled:

@@ -310,7 +310,7 @@ struct RootView: View {
         } message: {
             Text("The imported source file stays untouched. Only this app’s managed copy and local notes are removed.")
         }
-        .alert("Transcript Pipeline \(availableUpdate?.version ?? "") is available", isPresented: Binding(
+        .alert("What Was Said \(availableUpdate?.version ?? "") is available", isPresented: Binding(
             get: { availableUpdate != nil },
             set: { if !$0 { availableUpdate = nil } }
         )) {

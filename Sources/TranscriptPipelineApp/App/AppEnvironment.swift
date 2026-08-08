@@ -17,7 +17,7 @@ final class AppEnvironment: ObservableObject {
         } catch {
             let warning = "The normal managed library could not be opened: \(error.localizedDescription). This session is using a temporary recovery library."
             let recoveryRoot = FileManager.default.temporaryDirectory
-                .appendingPathComponent("TranscriptPipeline-Recovery-\(UUID().uuidString)", isDirectory: true)
+                .appendingPathComponent("WhatWasSaid-Recovery-\(UUID().uuidString)", isDirectory: true)
             do {
                 components = try Self.makeComponents(rootURL: recoveryRoot, warning: warning)
             } catch {

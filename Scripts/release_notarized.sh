@@ -2,9 +2,9 @@
 set -euo pipefail
 
 PROJECT_DIR="${0:A:h:h}"
-APP_DIR="$PROJECT_DIR/Release/Transcript Pipeline.app"
-DMG_PATH="$PROJECT_DIR/Release/Transcript-Pipeline.dmg"
-ZIP_PATH="$PROJECT_DIR/Release/Transcript-Pipeline-notarization.zip"
+APP_DIR="$PROJECT_DIR/Release/What Was Said.app"
+DMG_PATH="$PROJECT_DIR/Release/What-Was-Said.dmg"
+ZIP_PATH="$PROJECT_DIR/Release/What-Was-Said-notarization.zip"
 
 if [[ -z "${DEVELOPER_ID_APPLICATION:-}" ]]; then
   echo "Set DEVELOPER_ID_APPLICATION to the exact Developer ID Application certificate name." >&2
