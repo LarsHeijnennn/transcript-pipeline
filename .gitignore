@@ -1,0 +1,10 @@
+.DS_Store
+.build/
+.swiftpm/
+DerivedData/
+Build/
+Release/
+*.xcuserstate
+*.dmg
+*.zip
+Configuration/Local.xcconfig

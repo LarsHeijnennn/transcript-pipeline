@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>Transcript Pipeline</string>
+    <key>CFBundleGetInfoString</key>
+    <string>Transcript Pipeline 1.2.0 — Developed by Lars Heijnen</string>
+    <key>CFBundleExecutable</key>
+    <string>TranscriptPipelineApp</string>
+    <key>CFBundleIdentifier</key>
+    <string>nl.larsheijnen.TranscriptPipeline</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Transcript Pipeline</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.2.0</string>
+	<key>CFBundleVersion</key>
+	<string>7</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+    <key>NSSupportsSuddenTermination</key>
+    <false/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Transcript Pipeline uses the microphone only when you explicitly start a local recording.</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026 Lars Heijnen. All rights reserved.</string>
+</dict>
+</plist>
