@@ -2,6 +2,16 @@
 
 Native, local-first macOS app for recording or importing meeting audio and turning it into diarized transcripts, structured notes, action items, and grounded recording chat.
 
+## Screenshots
+
+The main library keeps recordings, smart views, folders, tags, and search close at hand:
+
+![What Was Said library](Assets/screenshots/library.png)
+
+Ask Library retrieves relevant excerpts locally and sends only those excerpts and the question for an answer:
+
+![What Was Said Ask Library](Assets/screenshots/ask-library.png)
+
 Developed by Lars Heijnen.
 
 Version 1.3.1 uses Apple's Liquid Glass APIs for the functional and navigation layer on macOS 26 or newer. Buttons, segmented navigation, pickers, the waveform scrubber, chat composer, recording controls, and speaker tools use native or grouped interactive glass. macOS 14–15 receive an equivalent system-material presentation with the same hierarchy, accessibility, and behavior.
