@@ -220,6 +220,7 @@ struct ActionItem: Codable, Equatable, Identifiable, Sendable {
     var task: String
     var owner: String
     var dueDate: String
+    var isCompleted: Bool
     var citations: [EvidenceCitation]
 
     init(
@@ -227,13 +228,29 @@ struct ActionItem: Codable, Equatable, Identifiable, Sendable {
         task: String,
         owner: String = "",
         dueDate: String = "",
+        isCompleted: Bool = false,
         citations: [EvidenceCitation] = []
     ) {
         self.id = id
         self.task = task
         self.owner = owner
         self.dueDate = dueDate
+        self.isCompleted = isCompleted
         self.citations = citations
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, task, owner, dueDate, isCompleted, citations
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        task = try values.decode(String.self, forKey: .task)
+        owner = try values.decodeIfPresent(String.self, forKey: .owner) ?? ""
+        dueDate = try values.decodeIfPresent(String.self, forKey: .dueDate) ?? ""
+        isCompleted = try values.decodeIfPresent(Bool.self, forKey: .isCompleted) ?? false
+        citations = try values.decodeIfPresent([EvidenceCitation].self, forKey: .citations) ?? []
     }
 }
 
@@ -250,6 +267,88 @@ struct ChatAnswer: Codable, Equatable, Sendable {
     let answer: String
     let citations: [EvidenceCitation]
     let usage: TokenUsage
+}
+
+enum LibrarySmartFilter: String, CaseIterable, Identifiable, Sendable {
+    case all
+    case favorites
+    case needsProcessing
+    case staleNotes
+    case failed
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: "All recordings"
+        case .favorites: "Favorites"
+        case .needsProcessing: "Needs processing"
+        case .staleNotes: "Stale notes"
+        case .failed: "Needs attention"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .all: "waveform"
+        case .favorites: "star"
+        case .needsProcessing: "sparkles"
+        case .staleNotes: "arrow.triangle.2.circlepath"
+        case .failed: "exclamationmark.triangle"
+        }
+    }
+}
+
+enum SearchMatchKind: String, Sendable {
+    case title, transcript, notes, speaker, tag, folder, actionItem
+
+    var title: String {
+        switch self {
+        case .title: "Title"
+        case .transcript: "Transcript"
+        case .notes: "Notes"
+        case .speaker: "Speaker"
+        case .tag: "Tag"
+        case .folder: "Folder"
+        case .actionItem: "Action item"
+        }
+    }
+}
+
+struct RecordingSearchMatch: Identifiable, Sendable {
+    let id: String
+    let recordingID: UUID
+    let kind: SearchMatchKind
+    let snippet: String
+    let timestamp: TimeInterval?
+    let score: Int
+}
+
+struct LibraryEvidence: Identifiable, Sendable {
+    let recordingID: UUID
+    let recordingTitle: String
+    let segment: TranscriptSegmentValue
+    let speakerName: String
+    let score: Double
+
+    var id: String { "\(recordingID.uuidString)|\(segment.id.uuidString)" }
+}
+
+struct LibrarySourceCitation: Codable, Equatable, Identifiable, Sendable {
+    let recordingID: UUID
+    let recordingTitle: String
+    let segmentID: UUID
+    let startSeconds: Double
+    let endSeconds: Double
+
+    var id: String { "\(recordingID.uuidString)|\(segmentID.uuidString)" }
+}
+
+struct LibraryAnswer: Sendable {
+    let answer: String
+    let sources: [LibrarySourceCitation]
+    let usage: TokenUsage
+    let excerptCount: Int
 }
 
 struct AnalysisTemplateDefinition: Codable, Equatable, Identifiable, Sendable {

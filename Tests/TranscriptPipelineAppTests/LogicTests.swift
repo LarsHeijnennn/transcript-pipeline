@@ -1,8 +1,130 @@
+import AVFoundation
 import Foundation
 import XCTest
 @testable import TranscriptPipelineApp
 
 final class LogicTests: XCTestCase {
+    func testWaveformSamplingCreatesReusableBoundedCache() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TranscriptPipeline-waveform-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("sample.wav")
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1))
+        try autoreleasepool {
+            let file = try AVAudioFile(forWriting: url, settings: format.settings)
+            let frames: AVAudioFrameCount = 44_100
+            let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames))
+            buffer.frameLength = frames
+            let channel = try XCTUnwrap(buffer.floatChannelData?[0])
+            for frame in 0..<Int(frames) {
+                channel[frame] = Float(sin(Double(frame) * 0.03) * (frame % 4_000 < 2_000 ? 0.8 : 0.2))
+            }
+            try file.write(from: buffer)
+        }
+
+        let first = await AudioWaveformService.samples(for: url, bucketCount: 64)
+        let second = await AudioWaveformService.samples(for: url, bucketCount: 64)
+
+        XCTAssertEqual(first.count, 64)
+        XCTAssertEqual(second, first)
+        XCTAssertEqual(first.max() ?? 0, 1, accuracy: 0.000_1)
+        let cacheFiles = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            .filter { $0.contains("waveform-v2-64") }
+        XCTAssertEqual(cacheFiles.count, 1)
+    }
+
+    @MainActor
+    func testLargeLibrarySearchPerformance() {
+        let recordings = (0..<120).map { recordingIndex in
+            let recording = RecordingRecord(
+                title: "Planning session \(recordingIndex)",
+                durationSeconds: 3_600,
+                localAudioPath: "/tmp/performance-\(recordingIndex).m4a",
+                sourceFormat: "m4a",
+                authorizationConfirmed: true
+            )
+            recording.segments = (0..<100).map { segmentIndex in
+                let isNeedle = segmentIndex == 73 && recordingIndex == 91
+                let routine = "Routine project discussion segment \(segmentIndex) for recording \(recordingIndex)."
+                let text = isNeedle ? "The unique performance needle appears here." : routine
+                return TranscriptSegmentRecord(value: TranscriptSegmentValue(
+                    speakerID: "speaker-\(segmentIndex % 4)",
+                    startSeconds: Double(segmentIndex * 30),
+                    endSeconds: Double(segmentIndex * 30 + 20),
+                    text: text
+                ))
+            }
+            return recording
+        }
+        let documents = recordings.map(RecordingSearchEngine.document(for:))
+        measure(metrics: [XCTClockMetric()]) {
+            let matches = RecordingSearchEngine.matches(documents: documents, query: "unique performance needle")
+            XCTAssertEqual(matches.count, 1)
+        }
+    }
+
+    @MainActor
+    func testLibrarySearchFindsTranscriptNotesTagsAndFolders() throws {
+        let recording = RecordingRecord(
+            title: "Weekly planning",
+            durationSeconds: 120,
+            localAudioPath: "/tmp/search.m4a",
+            sourceFormat: "m4a",
+            authorizationConfirmed: true
+        )
+        recording.folderName = "University"
+        recording.tags = ["Ethics"]
+        recording.segments = [TranscriptSegmentRecord(value: TranscriptSegmentValue(
+            speakerID: "speaker-1",
+            startSeconds: 42,
+            endSeconds: 48,
+            text: "The AFib pilot needs ethical review."
+        ))]
+        recording.speakers = [SpeakerRecord(providerLabel: "speaker-1", displayName: "Morgan", colorIndex: 0)]
+        recording.analyses = [try AnalysisRevisionRecord(
+            templateID: "general-meeting",
+            providerID: "openai",
+            modelID: "test",
+            document: AnalysisDocument(
+                title: "Planning",
+                overview: "A clinical study was discussed.",
+                sections: [], decisions: [],
+                actionItems: [ActionItem(task: "Submit ethics form")],
+                openQuestions: []
+            ),
+            usage: .zero
+        )]
+
+        XCTAssertEqual(RecordingSearchEngine.matches(recordings: [recording], query: "AFib").first?.timestamp, 42)
+        XCTAssertEqual(RecordingSearchEngine.matches(recordings: [recording], query: "Morgan").first?.kind, .speaker)
+        XCTAssertEqual(RecordingSearchEngine.matches(recordings: [recording], query: "ethics form").first?.kind, .actionItem)
+        XCTAssertEqual(RecordingSearchEngine.matches(recordings: [recording], query: "University").first?.kind, .folder)
+    }
+
+    @MainActor
+    func testLocalLibraryRetrievalRanksRelevantSegments() {
+        let recording = RecordingRecord(
+            title: "Launch review",
+            durationSeconds: 90,
+            localAudioPath: "/tmp/retrieval.m4a",
+            sourceFormat: "m4a",
+            authorizationConfirmed: true
+        )
+        recording.segments = [
+            TranscriptSegmentRecord(value: TranscriptSegmentValue(speakerID: "A", startSeconds: 0, endSeconds: 4, text: "Lunch starts at noon.")),
+            TranscriptSegmentRecord(value: TranscriptSegmentValue(speakerID: "A", startSeconds: 10, endSeconds: 18, text: "The launch decision requires legal approval."))
+        ]
+        let evidence = LibraryRetrievalEngine.evidence(for: "What was the launch decision?", recordings: [recording])
+        XCTAssertEqual(evidence.first?.segment.startSeconds, 10)
+        XCTAssertTrue(evidence.first?.segment.text.contains("legal approval") == true)
+    }
+
+    func testActionItemDecodesOlderRevisionWithoutCompletionField() throws {
+        let json = #"{"id":"00000000-0000-0000-0000-000000000001","task":"Prepare report","owner":"","dueDate":"","citations":[]}"#
+        let item = try JSONDecoder().decode(ActionItem.self, from: Data(json.utf8))
+        XCTAssertFalse(item.isCompleted)
+    }
     func testSilenceAwareBoundariesPreferLowEnergyNearTargets() {
         let samples = [
             SilenceSample(second: 2_375, energy: 0.8),

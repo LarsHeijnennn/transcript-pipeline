@@ -1,9 +1,22 @@
 import Foundation
 import SwiftData
+import UserNotifications
 
 @MainActor
 final class ProcessingCoordinator: ObservableObject {
     @Published private(set) var activeRecordingIDs: Set<UUID> = []
+    @Published private(set) var queuedRecordingIDs: [UUID] = []
+
+    private struct ProcessingJob {
+        let recording: RecordingRecord
+        let template: AnalysisTemplateDefinition
+        let insightModel: String
+        let modelContext: ModelContext
+        let notifyWhenComplete: Bool
+    }
+
+    private var pendingJobs: [ProcessingJob] = []
+    private var activeTask: Task<Void, Never>?
 
     private let keychain: KeychainService
     private let library: ManagedLibrary
@@ -20,6 +33,68 @@ final class ProcessingCoordinator: ObservableObject {
         self.library = library
         self.audioPreparation = audioPreparation
         self.provider = provider
+    }
+
+    func enqueue(
+        recording: RecordingRecord,
+        template: AnalysisTemplateDefinition,
+        insightModel: String,
+        modelContext: ModelContext,
+        notifyWhenComplete: Bool = true
+    ) {
+        guard !activeRecordingIDs.contains(recording.id),
+              !queuedRecordingIDs.contains(recording.id) else { return }
+        recording.processingStage = .preparing
+        recording.processingProgress = 0.01
+        recording.processingDetail = activeTask == nil ? "Starting…" : "Waiting in processing queue"
+        try? modelContext.save()
+        pendingJobs.append(ProcessingJob(
+            recording: recording,
+            template: template,
+            insightModel: insightModel,
+            modelContext: modelContext,
+            notifyWhenComplete: notifyWhenComplete
+        ))
+        queuedRecordingIDs.append(recording.id)
+        startNextJobIfNeeded()
+    }
+
+    func cancel(recordingID: UUID) {
+        if activeRecordingIDs.contains(recordingID) {
+            activeTask?.cancel()
+            return
+        }
+        guard let index = pendingJobs.firstIndex(where: { $0.recording.id == recordingID }) else { return }
+        let job = pendingJobs.remove(at: index)
+        queuedRecordingIDs.removeAll { $0 == recordingID }
+        job.recording.processingStage = .cancelled
+        job.recording.processingDetail = "Removed from queue"
+        job.recording.lastError = "Processing was cancelled before it started."
+        try? job.modelContext.save()
+    }
+
+    func queuePosition(for recordingID: UUID) -> Int? {
+        queuedRecordingIDs.firstIndex(of: recordingID).map { $0 + 1 }
+    }
+
+    private func startNextJobIfNeeded() {
+        guard activeTask == nil, !pendingJobs.isEmpty else { return }
+        let job = pendingJobs.removeFirst()
+        queuedRecordingIDs.removeAll { $0 == job.recording.id }
+        activeTask = Task { [weak self] in
+            guard let self else { return }
+            await self.process(
+                recording: job.recording,
+                template: job.template,
+                insightModel: job.insightModel,
+                modelContext: job.modelContext
+            )
+            if job.notifyWhenComplete {
+                await self.postCompletionNotification(for: job.recording)
+            }
+            self.activeTask = nil
+            self.startNextJobIfNeeded()
+        }
     }
 
     func process(
@@ -48,6 +123,7 @@ final class ProcessingCoordinator: ObservableObject {
             recording.selectedTemplateID = template.id
             recording.processingStage = .preparing
             recording.processingProgress = 0.04
+            recording.processingDetail = "Preparing audio locally"
             try modelContext.save()
 
             let workingDirectory = try library.workingDirectory(for: recording.id)
@@ -60,16 +136,19 @@ final class ProcessingCoordinator: ObservableObject {
             var completed = recording.completedChunkIndexes
 
             for part in parts {
+                try Task.checkCancellation()
                 let checkpointURL = checkpointURL(for: part.partIndex, directory: workingDirectory)
                 if completed.contains(part.partIndex),
                    let data = try? Data(contentsOf: checkpointURL),
                    let result = try? JSONCoding.decoder.decode(TranscriptionResult.self, from: data) {
                     partTranscriptions.append(PartTranscription(part: part, result: result))
+                    recording.processingDetail = "Reused saved part \(part.partIndex + 1) of \(parts.count)"
                     continue
                 }
 
                 recording.processingStage = .uploading
                 recording.processingProgress = 0.10 + 0.65 * Double(part.partIndex) / Double(max(1, parts.count))
+                recording.processingDetail = "Uploading part \(part.partIndex + 1) of \(parts.count)"
                 try modelContext.save()
 
                 let references: [KnownSpeakerReference]
@@ -84,6 +163,7 @@ final class ProcessingCoordinator: ObservableObject {
                 }
 
                 recording.processingStage = .transcribing
+                recording.processingDetail = "Transcribing part \(part.partIndex + 1) of \(parts.count)"
                 let result = try await provider.transcribe(
                     part: part,
                     languageHint: recording.languageHint,
@@ -100,6 +180,7 @@ final class ProcessingCoordinator: ObservableObject {
 
             recording.processingStage = .merging
             recording.processingProgress = 0.78
+            recording.processingDetail = "Combining transcript parts"
             let merged = TranscriptMerger.merge(partTranscriptions)
             replaceTranscript(recording: recording, merged: merged, modelContext: modelContext)
             // Checkpoints cover crash recovery. Keeping a second full provider transcript in SwiftData
@@ -122,6 +203,7 @@ final class ProcessingCoordinator: ObservableObject {
 
             recording.processingStage = .generatingNotes
             recording.processingProgress = 0.86
+            recording.processingDetail = "Generating grounded notes"
             try modelContext.save()
             try await createAnalysis(
                 recording: recording,
@@ -133,16 +215,19 @@ final class ProcessingCoordinator: ObservableObject {
 
             recording.processingStage = .complete
             recording.processingProgress = 1
+            recording.processingDetail = "Finished"
             recording.completedChunkIndexes = []
             recording.updatedAt = Date()
             try modelContext.save()
             try? library.clearWorkingDirectory(for: recording.id)
         } catch is CancellationError {
             recording.processingStage = .cancelled
+            recording.processingDetail = "Cancelled; completed parts are saved"
             recording.lastError = "Processing was cancelled. Completed chunks remain available for retry."
             try? modelContext.save()
         } catch {
             recording.processingStage = .failed
+            recording.processingDetail = "Stopped with an error"
             recording.lastError = error.localizedDescription
             try? modelContext.save()
         }
@@ -159,6 +244,7 @@ final class ProcessingCoordinator: ObservableObject {
         }
         recording.processingStage = .generatingNotes
         recording.processingProgress = 0.88
+        recording.processingDetail = "Generating a new notes revision"
         try modelContext.save()
         do {
             try await createAnalysis(
@@ -170,9 +256,11 @@ final class ProcessingCoordinator: ObservableObject {
             )
             recording.processingStage = .complete
             recording.processingProgress = 1
+            recording.processingDetail = "Finished"
             try modelContext.save()
         } catch {
             recording.processingStage = .failed
+            recording.processingDetail = "Notes generation failed"
             recording.lastError = error.localizedDescription
             try? modelContext.save()
             throw error
@@ -234,6 +322,32 @@ final class ProcessingCoordinator: ObservableObject {
             try? modelContext.save()
             throw error
         }
+    }
+
+    func answerLibraryQuestion(
+        _ question: String,
+        recordings: [RecordingRecord],
+        insightModel: String
+    ) async throws -> LibraryAnswer {
+        guard let apiKey = try await keychain.loadAPIKeyAsync(), !apiKey.isEmpty else {
+            throw ProviderError.missingAPIKey
+        }
+        let documents = LibraryRetrievalEngine.documents(from: recordings)
+        let retrievalTask = Task.detached(priority: .userInitiated) {
+            LibraryRetrievalEngine.evidence(for: question, documents: documents)
+        }
+        let evidence = await withTaskCancellationHandler {
+            await retrievalTask.value
+        } onCancel: {
+            retrievalTask.cancel()
+        }
+        try Task.checkCancellation()
+        return try await provider.answerLibrary(
+            question: question,
+            evidence: evidence,
+            model: insightModel,
+            apiKey: apiKey
+        )
     }
 
     private func createAnalysis(
@@ -325,6 +439,23 @@ final class ProcessingCoordinator: ObservableObject {
 
     private func checkpointURL(for index: Int, directory: URL) -> URL {
         directory.appendingPathComponent(String(format: "result-%03d.json", index))
+    }
+
+    private func postCompletionNotification(for recording: RecordingRecord) async {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        guard settings.authorizationStatus == .authorized else { return }
+        let content = UNMutableNotificationContent()
+        content.title = recording.processingStage == .complete ? "Recording ready" : "Recording needs attention"
+        content.body = recording.processingStage == .complete
+            ? "\(recording.title) has been transcribed and summarized."
+            : "\(recording.title) stopped: \(recording.lastError ?? "Unknown error")"
+        content.sound = .default
+        try? await center.add(UNNotificationRequest(
+            identifier: "processing-\(recording.id.uuidString)",
+            content: content,
+            trigger: nil
+        ))
     }
 }
 

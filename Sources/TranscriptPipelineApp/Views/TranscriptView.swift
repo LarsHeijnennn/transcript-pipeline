@@ -12,6 +12,22 @@ struct TranscriptView: View {
     @State private var segmentStartTimes: [TimeInterval]
     @State private var activeSegmentID: UUID?
     @State private var showsCompactSpeakerEditor = false
+    @State private var transcriptSearch = ""
+    @State private var transcriptMatchIDs: Set<UUID>?
+
+    private var visibleSegments: [TranscriptSegmentRecord] {
+        guard let transcriptMatchIDs else { return orderedSegments }
+        return orderedSegments.filter { transcriptMatchIDs.contains($0.id) }
+    }
+
+    private var transcriptSearchKey: TranscriptSearchKey {
+        TranscriptSearchKey(
+            query: transcriptSearch,
+            recordingUpdatedAt: recording.updatedAt,
+            segmentCount: orderedSegments.count,
+            speakerNames: recording.speakers.map { "\($0.providerLabel):\($0.displayName)" }.sorted()
+        )
+    }
 
     init(
         recording: RecordingRecord,
@@ -45,6 +61,39 @@ struct TranscriptView: View {
             }
         }
         .onChange(of: recording.segments.count) { _, _ in reloadTimeline() }
+        .task(id: transcriptSearchKey) {
+            let query = transcriptSearch.trimmed
+            guard !query.isEmpty else {
+                transcriptMatchIDs = nil
+                return
+            }
+            let names = Dictionary(uniqueKeysWithValues: recording.speakers.map { ($0.providerLabel, $0.displayName) })
+            let candidates = orderedSegments.map {
+                TranscriptSearchCandidate(
+                    id: $0.id,
+                    text: $0.effectiveText,
+                    speakerName: names[$0.speakerID] ?? $0.speakerID
+                )
+            }
+            do {
+                try await Task.sleep(for: .milliseconds(90))
+            } catch {
+                return
+            }
+            let searchTask = Task.detached(priority: .userInitiated) {
+                Set(candidates.lazy.filter {
+                    $0.text.localizedCaseInsensitiveContains(query)
+                        || $0.speakerName.localizedCaseInsensitiveContains(query)
+                }.map(\.id))
+            }
+            let matches = await withTaskCancellationHandler {
+                await searchTask.value
+            } onCancel: {
+                searchTask.cancel()
+            }
+            guard !Task.isCancelled else { return }
+            transcriptMatchIDs = matches
+        }
     }
 
     @ViewBuilder
@@ -62,7 +111,7 @@ struct TranscriptView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollViewReader { proxy in
-                List(orderedSegments) { segment in
+                List(visibleSegments) { segment in
                     TranscriptSegmentRow(
                         segment: segment,
                         speakers: recording.speakers,
@@ -72,7 +121,8 @@ struct TranscriptView: View {
                             segment.updatedAt = Date()
                             recording.markAnalysesStale()
                             try? modelContext.save()
-                        }
+                        },
+                        onDelete: { delete(segment) }
                     )
                     .id(segment.id)
                     .listRowSeparator(.hidden)
@@ -80,8 +130,10 @@ struct TranscriptView: View {
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
+                .searchable(text: $transcriptSearch, prompt: "Find in transcript")
                 .onReceive(player.$currentTime) { time in
-                    guard let index = TranscriptTimelineSearch.activeIndex(
+                    guard transcriptSearch.trimmed.isEmpty,
+                          let index = TranscriptTimelineSearch.activeIndex(
                         startTimes: segmentStartTimes,
                         at: time
                     ) else { return }
@@ -215,6 +267,31 @@ struct TranscriptView: View {
         recording.markAnalysesStale()
         try? modelContext.save()
     }
+
+    private func delete(_ segment: TranscriptSegmentRecord) {
+        recording.segments.removeAll { $0.id == segment.id }
+        modelContext.delete(segment)
+        recording.markAnalysesStale()
+        try? modelContext.save()
+        reloadTimeline()
+    }
+
+    private func speakerName(for providerLabel: String) -> String {
+        recording.speakers.first(where: { $0.providerLabel == providerLabel })?.displayName ?? providerLabel
+    }
+}
+
+private struct TranscriptSearchKey: Hashable {
+    let query: String
+    let recordingUpdatedAt: Date
+    let segmentCount: Int
+    let speakerNames: [String]
+}
+
+private struct TranscriptSearchCandidate: Sendable {
+    let id: UUID
+    let text: String
+    let speakerName: String
 }
 
 private struct TranscriptSegmentRow: View {
@@ -223,6 +300,7 @@ private struct TranscriptSegmentRow: View {
     let isActive: Bool
     let onSeek: () -> Void
     let onChanged: () -> Void
+    let onDelete: () -> Void
     @FocusState private var textIsFocused: Bool
     @State private var lastCommittedText: String
 
@@ -231,13 +309,15 @@ private struct TranscriptSegmentRow: View {
         speakers: [SpeakerRecord],
         isActive: Bool,
         onSeek: @escaping () -> Void,
-        onChanged: @escaping () -> Void
+        onChanged: @escaping () -> Void,
+        onDelete: @escaping () -> Void
     ) {
         self.segment = segment
         self.speakers = speakers
         self.isActive = isActive
         self.onSeek = onSeek
         self.onChanged = onChanged
+        self.onDelete = onDelete
         _lastCommittedText = State(initialValue: segment.editedText)
     }
 
@@ -267,6 +347,17 @@ private struct TranscriptSegmentRow: View {
                 .onChange(of: textIsFocused) { wasFocused, isFocused in
                     if wasFocused && !isFocused { commitTextIfNeeded() }
                 }
+            Menu {
+                Button("Restore original text", systemImage: "arrow.uturn.backward") {
+                    segment.editedText = segment.originalText
+                    commitTextIfNeeded()
+                }
+                Button("Delete segment", systemImage: "trash", role: .destructive, action: onDelete)
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 8)

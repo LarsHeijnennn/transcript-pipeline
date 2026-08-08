@@ -12,6 +12,9 @@ enum AppConfiguration {
     static let defaultInsightModel = "gpt-5.6-luna"
     static let qualityInsightModel = "gpt-5.6-terra"
     static let pricingUpdatedAt = "2026-08-07"
+    static let archiveExtension = "transcriptpipeline"
+    static let archiveSchemaVersion = 1
+    static let releasesAPIURL = URL(string: "https://api.github.com/repos/LarsHeijnennn/transcript-pipeline/releases/latest")!
     static let supportedExtensions: Set<String> = ["mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm"]
 }
 
@@ -29,6 +32,12 @@ final class AppSettings: ObservableObject {
     @Published var hasAcknowledgedPrivacy: Bool {
         didSet { defaults.set(hasAcknowledgedPrivacy, forKey: Keys.privacyAcknowledged) }
     }
+    @Published var notifyWhenProcessingCompletes: Bool {
+        didSet { defaults.set(notifyWhenProcessingCompletes, forKey: Keys.notifyWhenProcessingCompletes) }
+    }
+    @Published var automaticallyCheckForUpdates: Bool {
+        didSet { defaults.set(automaticallyCheckForUpdates, forKey: Keys.automaticallyCheckForUpdates) }
+    }
 
     private let defaults: UserDefaults
 
@@ -38,6 +47,8 @@ final class AppSettings: ObservableObject {
         self.customModelID = defaults.string(forKey: Keys.customModelID) ?? ""
         self.defaultLanguage = LanguageHint(rawValue: defaults.string(forKey: Keys.defaultLanguage) ?? "") ?? .automatic
         self.hasAcknowledgedPrivacy = defaults.bool(forKey: Keys.privacyAcknowledged)
+        self.notifyWhenProcessingCompletes = defaults.object(forKey: Keys.notifyWhenProcessingCompletes) as? Bool ?? true
+        self.automaticallyCheckForUpdates = defaults.object(forKey: Keys.automaticallyCheckForUpdates) as? Bool ?? true
     }
 
     var resolvedInsightModel: String {
@@ -50,6 +61,8 @@ final class AppSettings: ObservableObject {
         static let customModelID = "customModelID"
         static let defaultLanguage = "defaultLanguage"
         static let privacyAcknowledged = "privacyAcknowledged"
+        static let notifyWhenProcessingCompletes = "notifyWhenProcessingCompletes"
+        static let automaticallyCheckForUpdates = "automaticallyCheckForUpdates"
     }
 }
 

@@ -78,6 +78,83 @@ final class PersistenceAndExportTests: XCTestCase {
         XCTAssertEqual(imported.durationSeconds, 1, accuracy: 0.1)
     }
 
+    func testSubtitleAndDOCXExportsAreUsable() throws {
+        let recording = RecordingRecord(
+            title: "Caption test",
+            durationSeconds: 5,
+            localAudioPath: "/tmp/caption.m4a",
+            sourceFormat: "m4a",
+            authorizationConfirmed: true
+        )
+        recording.segments = [TranscriptSegmentRecord(value: TranscriptSegmentValue(
+            speakerID: "speaker-1",
+            startSeconds: 1.25,
+            endSeconds: 3.5,
+            text: "Hello & welcome."
+        ))]
+        recording.speakers = [SpeakerRecord(providerLabel: "speaker-1", displayName: "Alex", colorIndex: 0)]
+        let srt = ExportService.subtitles(for: recording, webVTT: false)
+        XCTAssertTrue(srt.contains("00:00:01,250 --> 00:00:03,500"))
+        XCTAssertTrue(srt.contains("Alex: Hello & welcome."))
+        let vtt = ExportService.subtitles(for: recording, webVTT: true)
+        XCTAssertTrue(vtt.hasPrefix("WEBVTT"))
+        XCTAssertTrue(vtt.contains("00:00:01.250"))
+        let actionDocument = AnalysisDocument(
+            title: "Tasks", overview: "", sections: [], decisions: [],
+            actionItems: [ActionItem(task: "Prepare follow-up", owner: "Alex", dueDate: "2026-08-20")],
+            openQuestions: []
+        )
+        recording.analyses = [try AnalysisRevisionRecord(
+            templateID: "general-meeting", providerID: "openai", modelID: "test",
+            document: actionDocument, usage: .zero
+        )]
+        let calendar = ExportService.calendarItems(for: recording)
+        XCTAssertTrue(calendar.contains("BEGIN:VTODO"))
+        XCTAssertTrue(calendar.contains("DUE;VALUE=DATE:20260820"))
+        let docx = try ExportService.export(recording: recording, format: .docx)
+        let data = try Data(contentsOf: docx)
+        XCTAssertTrue(data.starts(with: Data([0x50, 0x4B, 0x03, 0x04])))
+        XCTAssertGreaterThan(data.count, 500)
+    }
+
+    func testPortablePackageRoundTripPreservesWorkingData() async throws {
+        let temporary = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TranscriptPipelineArchiveTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let audio = temporary.appendingPathComponent("source.wav")
+        try makeWaveFile(at: audio, seconds: 1)
+        let recording = RecordingRecord(
+            title: "Portable session",
+            durationSeconds: 1,
+            localAudioPath: audio.path,
+            sourceFormat: "wav",
+            authorizationConfirmed: true
+        )
+        recording.folderName = "Research"
+        recording.tags = ["Pilot"]
+        recording.isFavorite = true
+        recording.segments = [TranscriptSegmentRecord(value: TranscriptSegmentValue(
+            speakerID: "speaker-1", startSeconds: 0, endSeconds: 1, text: "Portable transcript"
+        ))]
+        let package = try PortableLibraryService.exportPackage(recording: recording)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: package.appendingPathComponent("manifest.json").path))
+
+        let library = try ManagedLibrary(rootURL: temporary.appendingPathComponent("RestoredLibrary"))
+        let container = try makeContainer()
+        let restored = try await PortableLibraryService.importPackage(
+            from: package,
+            library: library,
+            modelContext: container.mainContext
+        )
+        XCTAssertEqual(restored.title, "Portable session")
+        XCTAssertEqual(restored.folderName, "Research")
+        XCTAssertEqual(restored.tags, ["Pilot"])
+        XCTAssertTrue(restored.isFavorite)
+        XCTAssertEqual(restored.sortedSegments.first?.effectiveText, "Portable transcript")
+        XCTAssertNotEqual(restored.id, recording.id)
+    }
+
     func testLiveRecordingModesExposeExpectedPermissionBoundary() {
         XCTAssertFalse(LiveRecordingMode.microphone.requiresScreenCapture)
         XCTAssertTrue(LiveRecordingMode.macAudioAndMicrophone.requiresScreenCapture)

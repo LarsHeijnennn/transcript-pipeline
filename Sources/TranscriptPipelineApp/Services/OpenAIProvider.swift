@@ -171,6 +171,60 @@ struct OpenAIProvider: TranscriptionProvider, InsightProvider, ChatProvider {
         )
     }
 
+    func answerLibrary(
+        question: String,
+        evidence: [LibraryEvidence],
+        model: String,
+        apiKey: String
+    ) async throws -> LibraryAnswer {
+        guard !evidence.isEmpty else {
+            return LibraryAnswer(
+                answer: "I couldn’t find relevant excerpts in the local library.",
+                sources: [],
+                usage: .zero,
+                excerptCount: 0
+            )
+        }
+        let input = evidence.map { item in
+            "[\(item.id)] [\(item.recordingTitle)] [\(item.segment.startSeconds.clockString)-\(item.segment.endSeconds.clockString)] \(item.speakerName): \(item.segment.text)"
+        }.joined(separator: "\n")
+        let instructions = """
+        Answer the user's question using only the supplied excerpts selected locally from their recording library.
+        Cite exact source IDs for every factual claim. Do not infer facts absent from the excerpts.
+        If the excerpts are insufficient, say so plainly. Synthesize across recordings only when the excerpts support it.
+        """
+        let body = try Self.responsesBody(
+            model: model,
+            instructions: instructions,
+            input: "Library excerpts:\n\(input)\n\nQuestion: \(question)",
+            schemaName: "library_answer",
+            schema: Self.libraryChatSchema
+        )
+        let request = try responsesRequest(body: body, apiKey: apiKey)
+        let data = try await send(request)
+        let envelope = try JSONDecoder().decode(ResponsesWireEnvelope.self, from: data)
+        let text = try envelope.outputText()
+        let wire = try JSONDecoder().decode(LibraryChatWire.self, from: Data(text.utf8))
+        let lookup = Dictionary(uniqueKeysWithValues: evidence.map { ($0.id, $0) })
+        var seen = Set<String>()
+        let sources = wire.sourceIDs.compactMap { id -> LibrarySourceCitation? in
+            guard seen.insert(id).inserted, let item = lookup[id] else { return nil }
+            return LibrarySourceCitation(
+                recordingID: item.recordingID,
+                recordingTitle: item.recordingTitle,
+                segmentID: item.segment.id,
+                startSeconds: item.segment.startSeconds,
+                endSeconds: item.segment.endSeconds
+            )
+        }
+        return LibraryAnswer(
+            answer: wire.answer,
+            sources: sources,
+            usage: envelope.usage?.domain ?? .zero,
+            excerptCount: evidence.count
+        )
+    }
+
     static func responsesBody(
         model: String,
         instructions: String,
@@ -334,6 +388,18 @@ struct OpenAIProvider: TranscriptionProvider, InsightProvider, ChatProvider {
                 "segment_ids": ["type": "array", "items": ["type": "string"]]
             ],
             "required": ["answer", "segment_ids"],
+            "additionalProperties": false
+        ]
+    }
+
+    static var libraryChatSchema: [String: Any] {
+        [
+            "type": "object",
+            "properties": [
+                "answer": ["type": "string"],
+                "source_ids": ["type": "array", "items": ["type": "string"]]
+            ],
+            "required": ["answer", "source_ids"],
             "additionalProperties": false
         ]
     }
@@ -516,6 +582,12 @@ private struct ChatWire: Decodable {
     let answer: String
     let segmentIDs: [String]
     enum CodingKeys: String, CodingKey { case answer; case segmentIDs = "segment_ids" }
+}
+
+private struct LibraryChatWire: Decodable {
+    let answer: String
+    let sourceIDs: [String]
+    enum CodingKeys: String, CodingKey { case answer; case sourceIDs = "source_ids" }
 }
 
 private struct OpenAIWireError: Decodable {

@@ -18,10 +18,22 @@ cp ".build/release/TranscriptPipelineApp" "$CONTENTS_DIR/MacOS/TranscriptPipelin
 cp "Configuration/Info.plist" "$CONTENTS_DIR/Info.plist"
 chmod 755 "$CONTENTS_DIR/MacOS/TranscriptPipelineApp"
 
-# Ad-hoc signing preserves sandbox entitlements. This is not Developer ID signing or notarization.
-codesign --force --deep --sign - \
-  --entitlements "Configuration/TranscriptPipeline.entitlements" \
-  "$APP_DIR"
+if [[ -n "${DEVELOPER_ID_APPLICATION:-}" ]]; then
+  codesign --force --deep \
+    --sign "$DEVELOPER_ID_APPLICATION" \
+    --options runtime \
+    --timestamp \
+    --entitlements "Configuration/TranscriptPipeline.entitlements" \
+    "$APP_DIR"
+else
+  # Developer builds remain ad-hoc signed so sandbox entitlements work locally.
+  codesign --force --deep --sign - \
+    --entitlements "Configuration/TranscriptPipeline.entitlements" \
+    "$APP_DIR"
+fi
 
 codesign --verify --deep --strict --verbose=2 "$APP_DIR"
+if [[ -n "${DEVELOPER_ID_APPLICATION:-}" ]]; then
+  codesign -dv --verbose=4 "$APP_DIR"
+fi
 echo "$APP_DIR"

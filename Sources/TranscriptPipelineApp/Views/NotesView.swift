@@ -1,29 +1,48 @@
+import SwiftData
 import SwiftUI
 
 struct NotesView: View {
-    let recording: RecordingRecord
+    @Environment(\.modelContext) private var modelContext
+    @Bindable var recording: RecordingRecord
     let isProcessing: Bool
     let onGenerate: () -> Void
     let onSeek: (EvidenceCitation) -> Void
+    @State private var selectedRevisionID: UUID?
+    @State private var draftRevisionID: UUID?
+    @State private var draftDocument: AnalysisDocument?
+    @State private var pendingSave: Task<Void, Never>?
+
+    private var selectedRevision: AnalysisRevisionRecord? {
+        if let selectedRevisionID,
+           let revision = recording.analyses.first(where: { $0.id == selectedRevisionID }) {
+            return revision
+        }
+        return recording.currentAnalysis
+    }
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
-                if let revision = recording.currentAnalysis, let document = revision.document {
+                if let revision = selectedRevision, let document = document(for: revision) {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(document.title).font(.largeTitle.weight(.semibold))
-                            Text("Generated notes")
+                            TextField("Notes title", text: documentTextBinding(\.title, revision: revision))
+                                .font(.largeTitle.weight(.semibold))
+                                .textFieldStyle(.plain)
+                            Text(revision.isStale ? "Based on an earlier transcript version" : "Working notes")
                                 .font(.caption.weight(.medium))
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
                         if recording.analyses.count > 1 {
-                            StatusPill(
-                                title: "Revision \(recording.analyses.count)",
-                                symbol: "clock.arrow.trianglehead.counterclockwise.rotate.90",
-                                color: .secondary
-                            )
+                            Picker("Revision", selection: revisionBinding) {
+                                ForEach(recording.sortedAnalyses) { option in
+                                    Text(option.createdAt.formatted(date: .abbreviated, time: .shortened))
+                                        .tag(Optional(option.id))
+                                }
+                            }
+                            .frame(maxWidth: 210)
+                            .help("Open an earlier generated revision")
                         }
                     }
                     if revision.isStale {
@@ -46,45 +65,37 @@ struct NotesView: View {
                     }
                     HStack(alignment: .top, spacing: 14) {
                         SymbolBadge(symbol: "sparkles", size: 42)
-                        Text(document.overview)
+                        TextEditor(text: documentTextBinding(\.overview, revision: revision))
                             .font(.title3)
-                            .textSelection(.enabled)
+                            .scrollContentBackground(.hidden)
+                            .frame(minHeight: 70)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(18)
                     .contentSurface(tint: .accentColor)
 
-                    ForEach(document.sections) { section in
-                        NoteSection(title: section.heading, items: section.items, onSeek: onSeek)
+                    ForEach(Array(document.sections.enumerated()), id: \.element.id) { index, _ in
+                        EditableNoteSection(
+                            heading: sectionHeadingBinding(index: index, revision: revision),
+                            items: sectionItemsBinding(index: index, revision: revision),
+                            onSeek: onSeek
+                        )
                     }
-                    NoteSection(title: "Decisions", items: document.decisions, onSeek: onSeek)
+                    EditableNoteSection(
+                        fixedHeading: "Decisions",
+                        items: citedItemsBinding(\.decisions, revision: revision),
+                        onSeek: onSeek
+                    )
 
-                    VStack(alignment: .leading, spacing: 12) {
-                        ModernSectionTitle(title: "Action items", symbol: "checklist")
-                        if document.actionItems.isEmpty {
-                            Text("No confirmed action items found.").foregroundStyle(.secondary)
-                        }
-                        ForEach(document.actionItems) { item in
-                            HStack(alignment: .top, spacing: 10) {
-                                Image(systemName: "circle")
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(item.task).textSelection(.enabled)
-                                    HStack {
-                                        if !item.owner.isEmpty { Label(item.owner, systemImage: "person") }
-                                        if !item.dueDate.isEmpty { Label(item.dueDate, systemImage: "calendar") }
-                                        CitationButtons(citations: item.citations, onSeek: onSeek)
-                                    }
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                }
-                            }
-                            .padding(12)
-                            .background(.quaternary.opacity(0.42), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        }
-                    }
-                    .padding(18)
-                    .contentSurface()
-                    NoteSection(title: "Open questions", items: document.openQuestions, onSeek: onSeek)
+                    EditableActionItems(
+                        items: actionItemsBinding(revision: revision),
+                        onSeek: onSeek
+                    )
+                    EditableNoteSection(
+                        fixedHeading: "Open questions",
+                        items: citedItemsBinding(\.openQuestions, revision: revision),
+                        onSeek: onSeek
+                    )
                 } else {
                     ContentUnavailableView {
                         Label("No notes yet", systemImage: "note.text.badge.plus")
@@ -105,6 +116,117 @@ struct NotesView: View {
             .frame(maxWidth: AppStyle.pageWidth, alignment: .leading)
             .padding(30)
         }
+        .onAppear {
+            selectedRevisionID = recording.currentAnalysis?.id
+            loadDraft(for: selectedRevision)
+        }
+        .onChange(of: recording.currentAnalysis?.id) { _, id in
+            if selectedRevisionID == nil || !recording.analyses.contains(where: { $0.id == selectedRevisionID }) {
+                selectedRevisionID = id
+                loadDraft(for: selectedRevision)
+            }
+        }
+        .onDisappear { commitDraft() }
+    }
+
+    private var revisionBinding: Binding<UUID?> {
+        Binding(get: { selectedRevision?.id }, set: { switchRevision(to: $0) })
+    }
+
+    private func mutate(_ revision: AnalysisRevisionRecord, _ change: (inout AnalysisDocument) -> Void) {
+        guard var document = document(for: revision) else { return }
+        change(&document)
+        draftRevisionID = revision.id
+        draftDocument = document
+        scheduleSave()
+    }
+
+    private func document(for revision: AnalysisRevisionRecord) -> AnalysisDocument? {
+        if draftRevisionID == revision.id, let draftDocument { return draftDocument }
+        return revision.document
+    }
+
+    private func loadDraft(for revision: AnalysisRevisionRecord?) {
+        pendingSave?.cancel()
+        draftRevisionID = revision?.id
+        draftDocument = revision?.document
+    }
+
+    private func switchRevision(to id: UUID?) {
+        commitDraft()
+        selectedRevisionID = id
+        loadDraft(for: selectedRevision)
+    }
+
+    private func scheduleSave() {
+        pendingSave?.cancel()
+        pendingSave = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .milliseconds(450))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            commitDraft()
+        }
+    }
+
+    private func commitDraft() {
+        pendingSave?.cancel()
+        guard let draftRevisionID,
+              let draftDocument,
+              let revision = recording.analyses.first(where: { $0.id == draftRevisionID }),
+              revision.document != draftDocument else { return }
+        revision.document = draftDocument
+        recording.updatedAt = Date()
+        try? modelContext.save()
+    }
+
+    private func documentTextBinding(
+        _ keyPath: WritableKeyPath<AnalysisDocument, String>,
+        revision: AnalysisRevisionRecord
+    ) -> Binding<String> {
+        Binding(
+            get: { document(for: revision)?[keyPath: keyPath] ?? "" },
+            set: { value in mutate(revision) { $0[keyPath: keyPath] = value } }
+        )
+    }
+
+    private func sectionHeadingBinding(index: Int, revision: AnalysisRevisionRecord) -> Binding<String> {
+        Binding(
+            get: { document(for: revision)?.sections[safe: index]?.heading ?? "Section" },
+            set: { value in mutate(revision) { document in
+                guard document.sections.indices.contains(index) else { return }
+                document.sections[index].heading = value
+            } }
+        )
+    }
+
+    private func sectionItemsBinding(index: Int, revision: AnalysisRevisionRecord) -> Binding<[CitedText]> {
+        Binding(
+            get: { document(for: revision)?.sections[safe: index]?.items ?? [] },
+            set: { value in mutate(revision) { document in
+                guard document.sections.indices.contains(index) else { return }
+                document.sections[index].items = value
+            } }
+        )
+    }
+
+    private func citedItemsBinding(
+        _ keyPath: WritableKeyPath<AnalysisDocument, [CitedText]>,
+        revision: AnalysisRevisionRecord
+    ) -> Binding<[CitedText]> {
+        Binding(
+            get: { document(for: revision)?[keyPath: keyPath] ?? [] },
+            set: { value in mutate(revision) { $0[keyPath: keyPath] = value } }
+        )
+    }
+
+    private func actionItemsBinding(revision: AnalysisRevisionRecord) -> Binding<[ActionItem]> {
+        Binding(
+            get: { document(for: revision)?.actionItems ?? [] },
+            set: { value in mutate(revision) { $0.actionItems = value } }
+        )
     }
 }
 
@@ -152,24 +274,58 @@ private struct UsageSummary: View {
     }
 }
 
-private struct NoteSection: View {
-    let title: String
-    let items: [CitedText]
+private struct EditableNoteSection: View {
+    var fixedHeading: String?
+    var heading: Binding<String>?
+    @Binding var items: [CitedText]
     let onSeek: (EvidenceCitation) -> Void
+
+    init(
+        fixedHeading: String? = nil,
+        heading: Binding<String>? = nil,
+        items: Binding<[CitedText]>,
+        onSeek: @escaping (EvidenceCitation) -> Void
+    ) {
+        self.fixedHeading = fixedHeading
+        self.heading = heading
+        _items = items
+        self.onSeek = onSeek
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ModernSectionTitle(title: title, symbol: sectionSymbol)
+            HStack {
+                if let heading {
+                    TextField("Section heading", text: heading)
+                        .font(.headline)
+                        .textFieldStyle(.plain)
+                } else {
+                    ModernSectionTitle(title: fixedHeading ?? "Notes", symbol: sectionSymbol)
+                }
+                Spacer()
+                Button("Add item", systemImage: "plus") {
+                    items.append(CitedText(text: ""))
+                }
+                .buttonStyle(.borderless)
+                .labelStyle(.iconOnly)
+            }
             if items.isEmpty {
                 Text("Nothing confirmed in the transcript.").foregroundStyle(.secondary)
             }
-            ForEach(items) { item in
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 HStack(alignment: .top, spacing: 9) {
                     Text("•")
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(item.text).textSelection(.enabled)
+                        TextField("Note", text: itemTextBinding(index), axis: .vertical)
+                            .textFieldStyle(.plain)
+                            .lineLimit(1...5)
                         CitationButtons(citations: item.citations, onSeek: onSeek)
                     }
+                    Button("Delete", systemImage: "trash", role: .destructive) {
+                        items.remove(at: index)
+                    }
+                    .buttonStyle(.borderless)
+                    .labelStyle(.iconOnly)
                 }
             }
         }
@@ -178,11 +334,80 @@ private struct NoteSection: View {
     }
 
     private var sectionSymbol: String {
-        switch title.lowercased() {
+        switch (fixedHeading ?? heading?.wrappedValue ?? "").lowercased() {
         case "decisions": "checkmark.seal"
         case "open questions": "questionmark.bubble"
         default: "text.alignleft"
         }
+    }
+
+    private func itemTextBinding(_ index: Int) -> Binding<String> {
+        Binding(
+            get: { items.indices.contains(index) ? items[index].text : "" },
+            set: { if items.indices.contains(index) { items[index].text = $0 } }
+        )
+    }
+}
+
+private struct EditableActionItems: View {
+    @Binding var items: [ActionItem]
+    let onSeek: (EvidenceCitation) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                ModernSectionTitle(title: "Action items", symbol: "checklist")
+                Spacer()
+                Button("Add action item", systemImage: "plus") {
+                    items.append(ActionItem(task: ""))
+                }
+                .buttonStyle(.borderless)
+                .labelStyle(.iconOnly)
+            }
+            if items.isEmpty {
+                Text("No confirmed action items found.").foregroundStyle(.secondary)
+            }
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                HStack(alignment: .top, spacing: 10) {
+                    Toggle("Completed", isOn: binding(index, \.isCompleted))
+                        .labelsHidden()
+                    VStack(alignment: .leading, spacing: 8) {
+                        TextField("Action item", text: binding(index, \.task), axis: .vertical)
+                            .textFieldStyle(.plain)
+                            .strikethrough(item.isCompleted)
+                        HStack {
+                            TextField("Owner", text: binding(index, \.owner))
+                            TextField("Due date", text: binding(index, \.dueDate))
+                            CitationButtons(citations: item.citations, onSeek: onSeek)
+                        }
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
+                    }
+                    Button("Delete", systemImage: "trash", role: .destructive) {
+                        items.remove(at: index)
+                    }
+                    .buttonStyle(.borderless)
+                    .labelStyle(.iconOnly)
+                }
+                .padding(12)
+                .background(.quaternary.opacity(0.42), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+        }
+        .padding(18)
+        .contentSurface()
+    }
+
+    private func binding<Value>(_ index: Int, _ keyPath: WritableKeyPath<ActionItem, Value>) -> Binding<Value> {
+        Binding(
+            get: { items[index][keyPath: keyPath] },
+            set: { if items.indices.contains(index) { items[index][keyPath: keyPath] = $0 } }
+        )
+    }
+}
+
+private extension Array {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
 

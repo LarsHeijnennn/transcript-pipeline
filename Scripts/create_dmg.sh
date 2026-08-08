@@ -3,10 +3,16 @@ set -euo pipefail
 
 PROJECT_DIR="${0:A:h:h}"
 APP_DIR="$PROJECT_DIR/Release/Transcript Pipeline.app"
-DMG_PATH="$PROJECT_DIR/Release/Transcript-Pipeline-unsigned.dmg"
+if [[ -n "${DEVELOPER_ID_APPLICATION:-}" ]]; then
+  DMG_PATH="$PROJECT_DIR/Release/Transcript-Pipeline.dmg"
+else
+  DMG_PATH="$PROJECT_DIR/Release/Transcript-Pipeline-unsigned.dmg"
+fi
 STAGING_DIR="$PROJECT_DIR/Release/dmg-staging"
 
-"$PROJECT_DIR/Scripts/build_app.sh"
+if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
+  "$PROJECT_DIR/Scripts/build_app.sh"
+fi
 
 rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
@@ -14,12 +20,13 @@ cp -R "$APP_DIR" "$STAGING_DIR/"
 ln -s /Applications "$STAGING_DIR/Applications"
 
 rm -f "$DMG_PATH"
-hdiutil create \
-  -volname "Transcript Pipeline" \
-  -srcfolder "$STAGING_DIR" \
-  -ov \
-  -format UDZO \
+diskutil image create from \
+  --volumeName "Transcript Pipeline" \
+  --format UDZO \
+  "$STAGING_DIR" \
   "$DMG_PATH"
+
+hdiutil verify "$DMG_PATH"
 
 rm -rf "$STAGING_DIR"
 echo "$DMG_PATH"

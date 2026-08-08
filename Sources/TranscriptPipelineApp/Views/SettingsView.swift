@@ -1,11 +1,14 @@
+import AppKit
 import SwiftData
 import SwiftUI
+import UserNotifications
 
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var environment: AppEnvironment
     @Query(sort: \CustomTemplateRecord.createdAt) private var customTemplates: [CustomTemplateRecord]
+    @Query(sort: \RecordingRecord.importedAt) private var recordings: [RecordingRecord]
 
     @State private var apiKey = ""
     @State private var revealKey = false
@@ -14,6 +17,9 @@ struct SettingsView: View {
     @State private var templateName = ""
     @State private var templateInstructions = ""
     @State private var templateSections = ""
+    @State private var notificationStatus = ""
+    @State private var maintenanceMessage: String?
+    @State private var checkingForUpdates = false
 
     var body: some View {
         ZStack {
@@ -88,6 +94,13 @@ struct SettingsView: View {
                 Text("Used as the starting choice for new recordings and imports. Automatic detection is recommended for mixed-language conversations.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Toggle("Notify when queued processing finishes", isOn: $settings.notifyWhenProcessingCompletes)
+                    .onChange(of: settings.notifyWhenProcessingCompletes) { _, enabled in
+                        if enabled { Task { await requestNotificationPermission() } }
+                    }
+                if !notificationStatus.isEmpty {
+                    Text(notificationStatus).font(.caption).foregroundStyle(.secondary)
+                }
             }
 
             Section("Insight model") {
@@ -144,6 +157,36 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section("Library safety") {
+                Button("Export complete library backup", systemImage: "externaldrive.badge.timemachine") {
+                    exportLibraryBackup()
+                }
+                .disabled(recordings.isEmpty)
+                Button("Show managed library in Finder", systemImage: "folder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([environment.library.rootURL])
+                }
+                Button("Run library diagnostics", systemImage: "stethoscope") {
+                    runDiagnostics()
+                }
+                if let maintenanceMessage {
+                    Text(maintenanceMessage).font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Backups are portable folders containing one self-contained package per recording. API keys are never included.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Updates") {
+                Toggle("Automatically check for new releases", isOn: $settings.automaticallyCheckForUpdates)
+                Button("Check for Updates", systemImage: "arrow.triangle.2.circlepath") {
+                    Task { await checkForUpdates() }
+                }
+                .disabled(checkingForUpdates)
+                Text("Updates are checked against the project’s published GitHub releases. Installation remains explicit so the app never replaces itself behind your back.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             }
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
@@ -183,6 +226,47 @@ struct SettingsView: View {
         } catch {
             keyStatus = .invalid
             validationError = error.localizedDescription
+        }
+    }
+
+    private func requestNotificationPermission() async {
+        do {
+            let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+            notificationStatus = granted ? "Completion notifications are enabled." : "Notifications are disabled in System Settings."
+            if !granted { settings.notifyWhenProcessingCompletes = false }
+        } catch {
+            notificationStatus = error.localizedDescription
+            settings.notifyWhenProcessingCompletes = false
+        }
+    }
+
+    private func exportLibraryBackup() {
+        do {
+            let url = try PortableLibraryService.exportLibrary(recordings: recordings)
+            NativeSharing.share(url)
+            maintenanceMessage = "Created a complete backup of \(recordings.count) recording\(recordings.count == 1 ? "" : "s")."
+        } catch {
+            maintenanceMessage = error.localizedDescription
+        }
+    }
+
+    private func runDiagnostics() {
+        let report = LibraryDiagnosticsService.scan(recordings: recordings, library: environment.library)
+        maintenanceMessage = report.summary
+    }
+
+    private func checkForUpdates() async {
+        checkingForUpdates = true
+        defer { checkingForUpdates = false }
+        do {
+            if let update = try await UpdateService().checkForUpdate() {
+                maintenanceMessage = "Version \(update.version) is available. Opening its release page."
+                NSWorkspace.shared.open(update.downloadURL ?? update.releaseURL)
+            } else {
+                maintenanceMessage = "Transcript Pipeline is up to date."
+            }
+        } catch {
+            maintenanceMessage = error.localizedDescription
         }
     }
 

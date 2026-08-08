@@ -5,13 +5,16 @@ import Foundation
 final class AudioPlayerController: ObservableObject {
     @Published private(set) var currentTime: TimeInterval = 0
     @Published private(set) var isPlaying = false
+    @Published private(set) var playbackRate: Float = 1
 
     let duration: TimeInterval
+    let sourceURL: URL
     private let player: AVPlayer
     private var timeObserver: Any?
 
     init(url: URL, duration: TimeInterval) {
         self.duration = duration
+        self.sourceURL = url
         self.player = AVPlayer(url: url)
         self.player.automaticallyWaitsToMinimizeStalling = false
         self.timeObserver = player.addPeriodicTimeObserver(
@@ -41,9 +44,19 @@ final class AudioPlayerController: ObservableObject {
             player.pause()
             isPlaying = false
         } else {
-            player.play()
+            player.playImmediately(atRate: playbackRate)
             isPlaying = true
         }
+    }
+
+    func skip(by seconds: TimeInterval) {
+        seek(to: currentTime + seconds)
+    }
+
+    func setPlaybackRate(_ rate: Float) {
+        playbackRate = rate
+        player.defaultRate = rate
+        if isPlaying { player.rate = rate }
     }
 
     func seek(to seconds: TimeInterval) {

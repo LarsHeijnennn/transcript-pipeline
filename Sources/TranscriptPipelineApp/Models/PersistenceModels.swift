@@ -13,12 +13,16 @@ final class RecordingRecord {
     var languageHintRaw: String
     var processingStageRaw: String
     var processingProgress: Double
+    var processingDetail: String = "Ready to process"
     var lastError: String?
     var providerID: String
     var transcriptionModel: String
     var insightModel: String
     var selectedTemplateID: String
     var authorizationConfirmed: Bool
+    var folderName: String = ""
+    var tagsData: Data = Data()
+    var isFavorite: Bool = false
     var rawProviderResponse: Data?
     var usageData: Data
     var completedChunkIndexesData: Data
@@ -48,11 +52,15 @@ final class RecordingRecord {
         self.languageHintRaw = languageHint.rawValue
         self.processingStageRaw = ProcessingStage.imported.rawValue
         self.processingProgress = 0
+        self.processingDetail = "Ready to process"
         self.providerID = "openai"
         self.transcriptionModel = "gpt-4o-transcribe-diarize"
         self.insightModel = "gpt-5.6-luna"
         self.selectedTemplateID = "general-meeting"
         self.authorizationConfirmed = authorizationConfirmed
+        self.folderName = ""
+        self.tagsData = Data()
+        self.isFavorite = false
         self.usageData = Data()
         self.completedChunkIndexesData = Data()
         self.segments = []
@@ -94,6 +102,17 @@ final class RecordingRecord {
         get { (try? JSONCoding.decoder.decode([UsageEntry].self, from: usageData)) ?? [] }
         set { usageData = (try? JSONCoding.encoder.encode(newValue)) ?? Data() }
     }
+
+    var tags: [String] {
+        get { (try? JSONCoding.decoder.decode([String].self, from: tagsData)) ?? [] }
+        set {
+            let normalized = Array(Set(newValue.map(\.trimmed).filter { !$0.isEmpty }))
+                .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            tagsData = (try? JSONCoding.encoder.encode(normalized)) ?? Data()
+        }
+    }
+
+    var hasStaleAnalysis: Bool { analyses.contains(where: \.isStale) }
 
     var completedChunkIndexes: Set<Int> {
         get {
@@ -138,8 +157,7 @@ final class TranscriptSegmentRecord {
     }
 
     var effectiveText: String {
-        let trimmed = editedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? originalText : trimmed
+        editedText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var value: TranscriptSegmentValue {
