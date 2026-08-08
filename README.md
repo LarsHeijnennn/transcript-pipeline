@@ -2,6 +2,12 @@
 
 Native, local-first macOS app for recording or importing meeting audio and turning it into diarized transcripts, structured notes, action items, and grounded recording chat.
 
+## Download
+
+**[Download What Was Said 1.3.1 for macOS →](https://github.com/LarsHeijnennn/what-was-said/releases/download/v1.3.1/What-Was-Said-unsigned.dmg)**
+
+For normal use, the DMG is all you need. It requires macOS 14 or newer on Apple silicon. The release is ad-hoc signed and not notarized, so macOS may ask you to open it with Control-click → **Open**; see [Opening the unsigned release](#opening-the-unsigned-release).
+
 ## Screenshots
 
 The main library keeps recordings, smart views, folders, tags, and search close at hand:
@@ -20,14 +26,17 @@ The main window follows a focused two-column Mac pattern: destinations, smart vi
 
 Audio and AI processing use the user's own OpenAI API account. Originals, transcripts, edits, chat history, and generated notes stay in the local managed library. No API key is stored in source, SwiftData, logs, or exports.
 
-## Requirements
+## Requirements for users
 
 - macOS 14 or newer
 - Apple silicon for the bundled release build
-- Xcode 16 or newer; this workspace currently builds with `/Applications/Xcode-beta.app`
-- An OpenAI API key with access to `gpt-4o-transcribe-diarize` and the selected Responses model
+- An OpenAI API key with access to `gpt-4o-transcribe-diarize` and the selected Responses model for processing recordings; recording and importing work without one
 
-## Build and test
+## Development
+
+Clone the repository if you want to inspect or build the app yourself. Xcode 16 or newer is required; this workspace currently builds with `/Applications/Xcode-beta.app`.
+
+### Build and test
 
 ```sh
 export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
