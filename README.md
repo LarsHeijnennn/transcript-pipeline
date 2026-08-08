@@ -31,9 +31,27 @@ Open `Package.swift` in Xcode for development. The release scripts create:
 - `Release/What Was Said.app`
 - `Release/What-Was-Said-unsigned.dmg`
 
-The app is ad-hoc signed only so sandbox entitlements work. It is not Developer ID signed or notarized. On another Mac, the recipient must right-click the app, choose **Open**, and confirm the Gatekeeper warning.
+The bundled app is ad-hoc signed so sandbox entitlements work, but it is not Developer ID signed or notarized. macOS may therefore block it the first time it is opened. See [Opening the unsigned release](#opening-the-unsigned-release) below.
 
 For a public release, set `DEVELOPER_ID_APPLICATION` and a `notarytool` Keychain profile named by `NOTARY_PROFILE`, then run `./Scripts/release_notarized.sh`. It builds with hardened runtime, submits the app and DMG to Apple, staples both tickets, runs Gatekeeper assessments, and prints the final SHA-256.
+
+## Opening the unsigned release
+
+Only do this if you trust where the download came from. The unsigned release has not been reviewed or notarized by Apple, so Gatekeeper may show a warning.
+
+1. Open the DMG and drag **What Was Said.app** to **Applications**.
+2. In **Applications**, Control-click (or right-click) **What Was Said.app** and choose **Open**. Do not launch it by double-clicking first.
+3. In the warning dialog, click **Open**.
+
+If **Open** is not offered, try opening the app once, then go to **System Settings → Privacy & Security**, scroll to **Security**, click **Open Anyway**, and confirm. Apple makes this button available for a limited time after the failed launch attempt.
+
+If macOS still refuses to launch a trusted copy, remove its download quarantine in Terminal and try again:
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/What Was Said.app"
+```
+
+This lowers one Gatekeeper check for that app copy, so do not use it for an untrusted download.
 
 ## First run
 
