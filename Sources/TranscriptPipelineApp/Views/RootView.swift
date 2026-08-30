@@ -461,6 +461,7 @@ struct RootView: View {
         defer { withAnimation { importStatus = nil } }
         do {
             let imported = try await environment.library.importFile(from: result.fileURL, recordingID: id)
+            try environment.library.preserveLiveCaptureArtifacts(from: result, recordingID: id)
             let recording = RecordingRecord(
                 id: id,
                 title: title.isEmpty ? imported.suggestedTitle : title,
@@ -475,6 +476,9 @@ struct RootView: View {
             try modelContext.save()
             try environment.liveRecording.discard(result)
             navigationSelection = .recording(recording.id)
+            if result.hasWarnings {
+                importError = "The recording was saved, and its separate source tracks were preserved, but it needs attention:\n\n\(result.warnings.joined(separator: "\n"))"
+            }
         } catch {
             try? environment.library.moveRecordingToTrash(recordingID: id)
             importError = "The recording was saved locally, but could not be added to the library: \(error.localizedDescription)"

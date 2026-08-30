@@ -85,12 +85,14 @@ Supported input extensions: `mp3`, `mp4`, `mpeg`, `mpga`, `m4a`, `wav`, and `web
 
 Choose **Record** in the Library toolbar or press `⇧⌘R`:
 
-- **Microphone** records the chosen Mac input for in-person conversations or a phone on speaker.
-- **Mac app + microphone** uses Apple's ScreenCaptureKit picker. Select the Teams, Zoom, FaceTime, WhatsApp, or other app/window whose audio may be captured; the app records that audio together with your microphone.
+- **Microphone** records the input you choose for in-person conversations or a phone on speaker.
+- **Mac app + microphone** uses Apple's ScreenCaptureKit picker. Select the whole Teams, Zoom, FaceTime, WhatsApp, or other app whose audio should be captured, then choose the same microphone used by the meeting app.
 
-Combined mode requires both tracks. While recording, the app confirms when Mac-app audio samples are arriving. If either the microphone or selected-app track is missing or unreadable, it shows an error and does not silently save an incomplete recording.
+On macOS 15 or newer, combined mode captures app audio and microphone audio as separate outputs from one synchronized ScreenCaptureKit stream. macOS 14 uses a monitored selected-device microphone session alongside ScreenCaptureKit. Live meters show whether each source is connected, audible, silent, stalled, or failed instead of treating the first buffer as proof that a source remains healthy.
 
-The first recording asks for macOS Microphone permission. For Mac-app audio, Apple’s system picker authorizes only the app or window selected for that capture session, so a separate full-screen grant is normally unnecessary. If macOS blocks either source, review What Was Said under **System Settings → Privacy & Security → Microphone** and **Screen & System Audio Recording**, then reopen the app.
+Stopping validates both source durations, detects tracks that remained silent or stopped early, reports material buffer loss, preserves their relative start timing, and balances their levels before mixing. If one source fails, the usable source is still saved with a warning instead of losing the entire meeting. For combined recordings, the managed recording directory also retains the original microphone track, app-audio track, and a private capture diagnostics file under `Capture Sources` for recovery and troubleshooting.
+
+The first recording asks for macOS Microphone permission. For Mac-app audio, Apple’s system picker authorizes only the app selected for that capture session, so a separate full-screen grant is normally unnecessary. If macOS blocks either source, review What Was Said under **System Settings → Privacy & Security → Microphone** and **Screen & System Audio Recording**, then reopen the app.
 
 Recording is local. Stopping creates a normal library item; nothing is uploaded until **Process** is clicked. A Mac app cannot tap a cellular call that exists only on an iPhone. Route the call through the Mac, use informed speakerphone recording, or export a recording made through an available iPhone feature and import it afterward.
 

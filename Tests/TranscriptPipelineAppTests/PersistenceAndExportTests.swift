@@ -78,6 +78,69 @@ final class PersistenceAndExportTests: XCTestCase {
         XCTAssertEqual(imported.durationSeconds, 1, accuracy: 0.1)
     }
 
+    func testManagedLibraryPreservesLiveCaptureSourcesAndDiagnostics() throws {
+        let temporary = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WhatWasSaidCaptureArtifactTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+
+        let microphone = temporary.appendingPathComponent("source-microphone.wav")
+        let systemAudio = temporary.appendingPathComponent("source-system.wav")
+        let diagnostics = temporary.appendingPathComponent("capture-diagnostics.json")
+        try makeWaveFile(at: microphone, seconds: 1)
+        try makeWaveFile(at: systemAudio, seconds: 1)
+        try Data("{\"status\":\"checked\"}".utf8).write(to: diagnostics)
+
+        let artifacts = [
+            LiveRecordingArtifact(
+                source: .microphone,
+                fileURL: microphone,
+                durationSeconds: 1,
+                firstSampleTimeSeconds: 0,
+                firstSampleWallClockSeconds: 100,
+                maxRMS: 0.1,
+                averageAudibleRMS: 0.05,
+                receivedBufferCount: 50,
+                writtenBufferCount: 50,
+                droppedBufferCount: 0
+            ),
+            LiveRecordingArtifact(
+                source: .systemAudio,
+                fileURL: systemAudio,
+                durationSeconds: 1,
+                firstSampleTimeSeconds: 0,
+                firstSampleWallClockSeconds: 100,
+                maxRMS: 0.1,
+                averageAudibleRMS: 0.05,
+                receivedBufferCount: 50,
+                writtenBufferCount: 50,
+                droppedBufferCount: 0
+            )
+        ]
+        let result = LiveRecordingResult(
+            fileURL: systemAudio,
+            durationSeconds: 1,
+            mode: .macAudioAndMicrophone,
+            sourceArtifacts: artifacts,
+            diagnosticsURL: diagnostics,
+            warnings: []
+        )
+        let recordingID = UUID()
+        let library = try ManagedLibrary(rootURL: temporary.appendingPathComponent("Library"))
+
+        try library.preserveLiveCaptureArtifacts(from: result, recordingID: recordingID)
+
+        let sources = library.recordingDirectory(for: recordingID)
+            .appendingPathComponent("Capture Sources", isDirectory: true)
+        for filename in ["microphone.m4a", "mac-audio.m4a", "capture-diagnostics.json"] {
+            let file = sources.appendingPathComponent(filename)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "Missing preserved \(filename)")
+            let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+            let permissions = try XCTUnwrap(attributes[.posixPermissions] as? NSNumber).intValue & 0o777
+            XCTAssertEqual(permissions, 0o600)
+        }
+    }
+
     func testSubtitleAndDOCXExportsAreUsable() throws {
         let recording = RecordingRecord(
             title: "Caption test",
@@ -202,6 +265,133 @@ final class PersistenceAndExportTests: XCTestCase {
         try await RecordedAudioValidator.validateTrack(at: readable, source: "Test source")
     }
 
+    func testAudioLevelMeterDistinguishesSoundFromDigitalSilence() async throws {
+        let temporary = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WhatWasSaidMeterTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+
+        let audible = temporary.appendingPathComponent("audible.wav")
+        let silent = temporary.appendingPathComponent("silent.wav")
+        try makeWaveFile(at: audible, seconds: 1, amplitude: 0.1)
+        try makeWaveFile(at: silent, seconds: 1, amplitude: 0)
+
+        let audibleBuffer = try await firstAudioSampleBuffer(at: audible)
+        let silentBuffer = try await firstAudioSampleBuffer(at: silent)
+        let audibleLevel = AudioLevelMeter.rms(of: audibleBuffer)
+        let silentLevel = AudioLevelMeter.rms(of: silentBuffer)
+
+        XCTAssertGreaterThan(audibleLevel, AudioLevelMeter.audibleRMSThreshold)
+        XCTAssertLessThan(silentLevel, AudioLevelMeter.audibleRMSThreshold)
+    }
+
+    func testCaptureQualityFlagsSilentShortAndMissingSources() {
+        let microphone = LiveRecordingArtifact(
+            source: .microphone,
+            fileURL: URL(fileURLWithPath: "/tmp/microphone.m4a"),
+            durationSeconds: 8,
+            firstSampleTimeSeconds: 0,
+            firstSampleWallClockSeconds: 100,
+            maxRMS: 0,
+            averageAudibleRMS: 0,
+            receivedBufferCount: 400,
+            writtenBufferCount: 400,
+            droppedBufferCount: 0
+        )
+
+        let warnings = CaptureQualityEvaluator.warnings(
+            artifacts: [microphone],
+            requiredSources: [.microphone, .systemAudio],
+            expectedDuration: 60
+        )
+
+        XCTAssertTrue(warnings.contains { $0.contains("Microphone contained samples but no audible sound") })
+        XCTAssertTrue(warnings.contains { $0.contains("Microphone stopped early") })
+        XCTAssertTrue(warnings.contains { $0.contains("Mac app audio was not available") })
+    }
+
+    func testCaptureQualityAcceptsTwoHealthyContinuousSources() {
+        let artifacts = [LiveAudioSource.microphone, .systemAudio].map { source in
+            LiveRecordingArtifact(
+                source: source,
+                fileURL: URL(fileURLWithPath: "/tmp/\(source.rawValue).m4a"),
+                durationSeconds: 59.5,
+                firstSampleTimeSeconds: 0,
+                firstSampleWallClockSeconds: 100,
+                maxRMS: 0.08,
+                averageAudibleRMS: 0.04,
+                receivedBufferCount: 3_000,
+                writtenBufferCount: 3_000,
+                droppedBufferCount: 0
+            )
+        }
+
+        XCTAssertTrue(CaptureQualityEvaluator.warnings(
+            artifacts: artifacts,
+            requiredSources: [.microphone, .systemAudio],
+            expectedDuration: 60
+        ).isEmpty)
+    }
+
+    func testTimedAudioTrackMergerPreservesSourceStartOffset() async throws {
+        let temporary = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WhatWasSaidTimedMixerTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+
+        let first = temporary.appendingPathComponent("first.wav")
+        let second = temporary.appendingPathComponent("second.wav")
+        let output = temporary.appendingPathComponent("mixed.m4a")
+        try makeWaveFile(at: first, seconds: 1)
+        try makeWaveFile(at: second, seconds: 1)
+
+        try await AudioTrackMerger.merge(
+            tracks: [
+                TimedAudioTrack(url: first, startOffset: 0, volume: 0.8),
+                TimedAudioTrack(url: second, startOffset: 0.5, volume: 0.8)
+            ],
+            outputURL: output
+        )
+
+        let duration = try await AVURLAsset(url: output).load(.duration).seconds
+        XCTAssertEqual(duration, 1.5, accuracy: 0.15)
+    }
+
+    func testAlignedTracksPreferSharedPresentationTimelineAndKeepMixHeadroom() {
+        let artifacts = [
+            LiveRecordingArtifact(
+                source: .microphone,
+                fileURL: URL(fileURLWithPath: "/tmp/microphone.m4a"),
+                durationSeconds: 10,
+                firstSampleTimeSeconds: 200,
+                firstSampleWallClockSeconds: 1_000,
+                maxRMS: 0.08,
+                averageAudibleRMS: 0.04,
+                receivedBufferCount: 500,
+                writtenBufferCount: 500,
+                droppedBufferCount: 0
+            ),
+            LiveRecordingArtifact(
+                source: .systemAudio,
+                fileURL: URL(fileURLWithPath: "/tmp/mac-audio.m4a"),
+                durationSeconds: 10,
+                firstSampleTimeSeconds: 200.35,
+                firstSampleWallClockSeconds: 1_000.01,
+                maxRMS: 0.08,
+                averageAudibleRMS: 0.04,
+                receivedBufferCount: 500,
+                writtenBufferCount: 500,
+                droppedBufferCount: 0
+            )
+        ]
+
+        let tracks = AudioTrackMerger.alignedTracks(artifacts: artifacts)
+
+        XCTAssertEqual(tracks[0].startOffset, 0, accuracy: 0.001)
+        XCTAssertEqual(tracks[1].startOffset, 0.35, accuracy: 0.001)
+        XCTAssertTrue(tracks.allSatisfy { $0.volume <= 0.9 })
+    }
+
     func testMultipartUploadBodyStreamsToPrivateTemporaryFile() throws {
         let temporary = FileManager.default.temporaryDirectory
             .appendingPathComponent("WhatWasSaidMultipartTests-\(UUID().uuidString)", isDirectory: true)
@@ -241,17 +431,33 @@ final class PersistenceAndExportTests: XCTestCase {
         )
     }
 
-    private func makeWaveFile(at url: URL, seconds: Double) throws {
+    private func makeWaveFile(at url: URL, seconds: Double, amplitude: Float = 0.1) throws {
         let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1))
         let frameCount = AVAudioFrameCount(16_000 * seconds)
         let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount))
         buffer.frameLength = frameCount
         if let samples = buffer.floatChannelData?[0] {
             for index in 0..<Int(frameCount) {
-                samples[index] = Float(sin(2 * Double.pi * 440 * Double(index) / 16_000) * 0.1)
+                samples[index] = Float(sin(2 * Double.pi * 440 * Double(index) / 16_000)) * amplitude
             }
         }
         let file = try AVAudioFile(forWriting: url, settings: format.settings)
         try file.write(from: buffer)
+    }
+
+    private func firstAudioSampleBuffer(at url: URL) async throws -> CMSampleBuffer {
+        let asset = AVURLAsset(url: url)
+        let track = try XCTUnwrap(try await asset.loadTracks(withMediaType: .audio).first)
+        let reader = try AVAssetReader(asset: asset)
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVLinearPCMIsFloatKey: true,
+            AVLinearPCMBitDepthKey: 32,
+            AVLinearPCMIsNonInterleaved: false
+        ])
+        XCTAssertTrue(reader.canAdd(output))
+        reader.add(output)
+        XCTAssertTrue(reader.startReading())
+        return try XCTUnwrap(output.copyNextSampleBuffer())
     }
 }

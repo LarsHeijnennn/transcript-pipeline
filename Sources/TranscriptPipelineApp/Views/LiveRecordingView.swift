@@ -10,6 +10,7 @@ struct LiveRecordingView: View {
     @State private var mode: LiveRecordingMode = .macAudioAndMicrophone
     @State private var title = ""
     @State private var language: LanguageHint = .automatic
+    @State private var selectedMicrophoneID = ""
     @State private var authorizationConfirmed = false
     @State private var actionError: String?
 
@@ -43,9 +44,13 @@ struct LiveRecordingView: View {
                 }
             }
         }
-        .frame(width: 600, height: 620)
+        .frame(width: 620, height: 690)
         .interactiveDismissDisabled(recorder.phase.isBusy)
         .onAppear {
+            recorder.refreshMicrophones()
+            if selectedMicrophoneID.isEmpty {
+                selectedMicrophoneID = recorder.defaultMicrophoneID ?? ""
+            }
             if title.isEmpty {
                 title = "Recording \(Date().formatted(date: .abbreviated, time: .shortened))"
                 language = settings.defaultLanguage
@@ -116,12 +121,35 @@ struct LiveRecordingView: View {
                     .animation(.snappy(duration: 0.24), value: mode)
                 }
 
+                Section("Microphone") {
+                    if recorder.availableMicrophones.isEmpty {
+                        Label("No microphone is currently available", systemImage: "mic.slash")
+                            .foregroundStyle(.orange)
+                    } else {
+                        Picker("Input", selection: $selectedMicrophoneID) {
+                            ForEach(recorder.availableMicrophones) { microphone in
+                                Text(microphone.isDefault ? "\(microphone.name) — System default" : microphone.name)
+                                    .tag(microphone.id)
+                            }
+                        }
+                        Button("Refresh microphones", systemImage: "arrow.clockwise") {
+                            recorder.refreshMicrophones()
+                            if !recorder.availableMicrophones.contains(where: { $0.id == selectedMicrophoneID }) {
+                                selectedMicrophoneID = recorder.defaultMicrophoneID ?? ""
+                            }
+                        }
+                    }
+                    Text("For a Teams call, choose the same microphone that Teams is using. What Was Said monitors this input independently during the recording.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section("Before recording") {
                     Label(
                         "Recording is saved locally first. Nothing goes to OpenAI until you later click Process.",
                         systemImage: "lock.shield"
                     )
-                    Text("For Mac app audio, Apple’s system picker asks you to choose the Teams, Zoom, FaceTime, or other app/window. What Was Said excludes its own audio.")
+                    Text("For Mac app audio, Apple’s system picker asks you to choose Teams, Zoom, FaceTime, or another app. Choose the whole app—not an individual call window—so all of that app’s audio is included. What Was Said excludes its own audio.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Toggle(
@@ -142,7 +170,7 @@ struct LiveRecordingView: View {
                 }
                 .liquidGlassButton(prominent: true)
                 .tint(.red)
-                .disabled(title.trimmed.isEmpty || !authorizationConfirmed)
+                .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !authorizationConfirmed || selectedMicrophoneID.isEmpty)
                 .keyboardShortcut(.defaultAction)
                 .help(authorizationConfirmed ? "Start recording" : "Confirm recording authorization first")
             }
@@ -173,22 +201,33 @@ struct LiveRecordingView: View {
                     .font(.system(size: 34, weight: .medium, design: .monospaced))
                     .accessibilityLabel("Recording duration \(recorder.elapsedSeconds.clockString)")
                 if recorder.phase == .choosingContent {
-                    Text("Choose the meeting app or call window in Apple’s picker. Only that selection’s Mac audio will be captured.")
+                    Text("Choose the meeting app in Apple’s picker—for example, Microsoft Teams. Its Mac audio and your selected microphone will be captured separately.")
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 390)
                 } else if recorder.phase == .recording {
-                    Text("Keep this app running. The audio remains local until you choose Process from the library.")
+                    Text("Keep this app running. Check that both meters move when you and another participant speak.")
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 390)
-                    Label(
-                        recorder.activeSourceSummary,
-                        systemImage: sourceIsVerified ? "checkmark.circle.fill" : "waveform"
-                    )
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(sourceIsVerified ? Color.green : Color.secondary)
-                    .accessibilityLabel(recorder.activeSourceSummary)
+                    VStack(spacing: 10) {
+                        AudioSourceHealthRow(status: recorder.microphoneStatus)
+                        if mode == .macAudioAndMicrophone {
+                            AudioSourceHealthRow(status: recorder.systemAudioStatus)
+                        }
+                    }
+                    .frame(maxWidth: 440)
+
+                    if recordingHasIssue {
+                        Label(
+                            "One source needs attention. The app will preserve the separate source files if it cannot produce a complete mix.",
+                            systemImage: "exclamationmark.triangle.fill"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 440)
+                    }
                 }
             }
 
@@ -217,7 +256,7 @@ struct LiveRecordingView: View {
 
     private func start() async {
         do {
-            try await recorder.start(mode: mode)
+            try await recorder.start(mode: mode, microphoneDeviceID: selectedMicrophoneID)
         } catch is CancellationError {
             // The system picker or this sheet was intentionally cancelled.
         } catch {
@@ -225,17 +264,88 @@ struct LiveRecordingView: View {
         }
     }
 
-    private var sourceIsVerified: Bool {
-        mode == .microphone || recorder.systemAudioDetected
+    private var recordingHasIssue: Bool {
+        let statuses = mode == .microphone
+            ? [recorder.microphoneStatus]
+            : [recorder.microphoneStatus, recorder.systemAudioStatus]
+        return statuses.contains { status in
+            switch status.health {
+            case .silent, .stalled, .failed: true
+            case .waiting, .active: false
+            }
+        }
     }
 
     private func stop() async {
         do {
             let result = try await recorder.stop()
-            onComplete(result, title.trimmed, language, authorizationConfirmed)
+            onComplete(
+                result,
+                title.trimmingCharacters(in: .whitespacesAndNewlines),
+                language,
+                authorizationConfirmed
+            )
             dismiss()
         } catch {
             actionError = error.localizedDescription
+        }
+    }
+}
+
+private struct AudioSourceHealthRow: View {
+    let status: LiveAudioSourceStatus
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .foregroundStyle(color)
+                    .frame(width: 18)
+                Text(status.source.title)
+                    .font(.callout.weight(.semibold))
+                Spacer()
+                Text(stateTitle)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(color)
+            }
+            ProgressView(value: status.level, total: 1)
+                .progressViewStyle(.linear)
+                .tint(color)
+            Text(status.detail)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityElement(children: .combine)
+    }
+
+    private var symbol: String {
+        switch status.health {
+        case .waiting: "waveform"
+        case .active: status.hasDetectedSound ? "checkmark.circle.fill" : "waveform"
+        case .silent: "speaker.slash.fill"
+        case .stalled: "exclamationmark.triangle.fill"
+        case .failed: "xmark.octagon.fill"
+        }
+    }
+
+    private var color: Color {
+        switch status.health {
+        case .active where status.hasDetectedSound: .green
+        case .silent, .stalled: .orange
+        case .failed: .red
+        case .waiting, .active: .secondary
+        }
+    }
+
+    private var stateTitle: String {
+        switch status.health {
+        case .waiting: "Starting"
+        case .active: status.hasDetectedSound ? "Sound detected" : "Connected"
+        case .silent: "Silent"
+        case .stalled: "Stalled"
+        case .failed: "Failed"
         }
     }
 }

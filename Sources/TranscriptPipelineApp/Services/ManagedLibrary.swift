@@ -95,6 +95,37 @@ struct ManagedLibrary: @unchecked Sendable {
         rootURL.appendingPathComponent(recordingID.uuidString, isDirectory: true)
     }
 
+    func preserveLiveCaptureArtifacts(from result: LiveRecordingResult, recordingID: UUID) throws {
+        guard result.mode == .macAudioAndMicrophone || result.hasWarnings else { return }
+        let destination = recordingDirectory(for: recordingID)
+            .appendingPathComponent("Capture Sources", isDirectory: true)
+        try fileManager.createDirectory(
+            at: destination,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+
+        for artifact in result.sourceArtifacts {
+            guard fileManager.fileExists(atPath: artifact.fileURL.path) else { continue }
+            let target = destination.appendingPathComponent(artifact.source.filename)
+            if fileManager.fileExists(atPath: target.path) {
+                try fileManager.removeItem(at: target)
+            }
+            try fileManager.copyItem(at: artifact.fileURL, to: target)
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
+        }
+
+        if let diagnosticsURL = result.diagnosticsURL,
+           fileManager.fileExists(atPath: diagnosticsURL.path) {
+            let target = destination.appendingPathComponent("capture-diagnostics.json")
+            if fileManager.fileExists(atPath: target.path) {
+                try fileManager.removeItem(at: target)
+            }
+            try fileManager.copyItem(at: diagnosticsURL, to: target)
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
+        }
+    }
+
     func workingDirectory(for recordingID: UUID) throws -> URL {
         let directory = recordingDirectory(for: recordingID).appendingPathComponent("Processing", isDirectory: true)
         try fileManager.createDirectory(
