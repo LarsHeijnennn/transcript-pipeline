@@ -7,7 +7,7 @@
     <key>CFBundleDisplayName</key>
     <string>What Was Said</string>
     <key>CFBundleGetInfoString</key>
-    <string>What Was Said 1.3.2 — Developed by Lars Heijnen</string>
+    <string>What Was Said 1.3.3 — Developed by Lars Heijnen</string>
     <key>CFBundleIconFile</key>
     <string>WhatWasSaid.icns</string>
     <key>CFBundleExecutable</key>
@@ -21,9 +21,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.3.2</string>
+    <string>1.3.3</string>
 	<key>CFBundleVersion</key>
-	<string>10</string>
+	<string>11</string>
     <key>UTExportedTypeDeclarations</key>
     <array>
         <dict>

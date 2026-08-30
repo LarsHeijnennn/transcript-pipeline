@@ -93,7 +93,7 @@ struct OnboardingView: View {
         VStack(spacing: 24) {
             SymbolBadge(symbol: "checkmark.seal", color: .green, size: 72)
             Text("Ready when you are").font(.largeTitle.weight(.semibold))
-            Text("Record a microphone or Mac app, import multiple files, or restore a complete recording package. You’ll confirm permission separately for every new recording.")
+            Text("Record a microphone or Mac audio, import multiple files, or restore a complete recording package. You’ll confirm permission separately for every new recording.")
                 .font(.title3)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)

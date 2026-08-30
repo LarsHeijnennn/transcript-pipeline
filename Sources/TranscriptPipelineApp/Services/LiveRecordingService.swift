@@ -12,7 +12,7 @@ enum LiveRecordingMode: String, CaseIterable, Identifiable, Sendable {
     var title: String {
         switch self {
         case .microphone: "Microphone"
-        case .macAudioAndMicrophone: "Mac app + microphone"
+        case .macAudioAndMicrophone: "Mac audio + microphone"
         }
     }
 
@@ -21,7 +21,7 @@ enum LiveRecordingMode: String, CaseIterable, Identifiable, Sendable {
         case .microphone:
             "Records the microphone you choose. Useful for in-person conversations and speakerphone calls."
         case .macAudioAndMicrophone:
-            "Records audio from the Mac app you choose, plus your selected microphone. Use this for Teams, Zoom, FaceTime, or calls routed through the Mac."
+            "Records all audio playing on the Mac, plus your selected microphone. Use this for Teams, Zoom, FaceTime, or calls routed through the Mac."
         }
     }
 
@@ -47,7 +47,7 @@ enum LiveRecordingPhase: Equatable, Sendable {
     var title: String {
         switch self {
         case .idle: "Ready"
-        case .choosingContent: "Choose a Mac app"
+        case .choosingContent: "Choose a Mac display"
         case .starting: "Starting and checking sources…"
         case .recording: "Recording"
         case .stopping: "Finishing and checking recording…"
@@ -62,7 +62,7 @@ enum LiveAudioSource: String, Codable, CaseIterable, Hashable, Sendable {
     var title: String {
         switch self {
         case .microphone: "Microphone"
-        case .systemAudio: "Mac app audio"
+        case .systemAudio: "Mac audio"
         }
     }
 
@@ -151,7 +151,7 @@ enum LiveRecordingError: LocalizedError {
         case .microphoneUnavailable(let detail):
             "The selected microphone is unavailable: \(detail)"
         case .contentSelectionCancelled:
-            "No Mac app was selected."
+            "No Mac display was selected."
         case .alreadyRecording:
             "A recording is already active."
         case .notRecording:
@@ -177,7 +177,7 @@ final class LiveRecordingService: NSObject, ObservableObject {
     @Published private(set) var microphoneStatus = LiveAudioSourceStatus.waiting(.microphone)
     @Published private(set) var systemAudioStatus = LiveAudioSourceStatus.waiting(.systemAudio)
     @Published private(set) var availableMicrophones: [LiveMicrophoneDevice] = []
-    @Published private(set) var selectedApplicationName = ""
+    @Published private(set) var selectedContentDescription = ""
 
     private let captureRoot: URL
     private let fileManager: FileManager
@@ -241,7 +241,7 @@ final class LiveRecordingService: NSObject, ObservableObject {
 
         selectedMode = mode
         selectedMicrophone = microphone
-        selectedApplicationName = ""
+        selectedContentDescription = ""
         elapsedSeconds = 0
         sourceTelemetry = [:]
         microphoneStatus = .waiting(.microphone)
@@ -251,9 +251,9 @@ final class LiveRecordingService: NSObject, ObservableObject {
             let filter: SCContentFilter?
             if mode.requiresScreenCapture {
                 phase = .choosingContent
-                let selectedFilter = try await chooseApplicationWithSystemPicker()
+                let selectedFilter = try await chooseDisplayWithSystemPicker()
                 filter = selectedFilter
-                selectedApplicationName = selectedApplicationDescription(from: selectedFilter)
+                selectedContentDescription = "Selected display (all Mac audio)"
             } else {
                 filter = nil
             }
@@ -264,16 +264,11 @@ final class LiveRecordingService: NSObject, ObservableObject {
             startedAt = Date()
 
             if let filter {
-                if #available(macOS 15.0, *) {
-                    try await startUnifiedCapture(
-                        filter: filter,
-                        microphone: microphone,
-                        directory: directory
-                    )
-                } else {
-                    try await startSeparateMicrophoneCapture(microphone: microphone, directory: directory)
-                    try await startSystemAudioOnly(filter: filter, directory: directory)
-                }
+                // Keep microphone capture independent from ScreenCaptureKit. Its remote
+                // microphone buffers have changed format across macOS releases, while
+                // AVCaptureSession also lets us recover from input interruptions.
+                try await startSeparateMicrophoneCapture(microphone: microphone, directory: directory)
+                try await startSystemAudioOnly(filter: filter, directory: directory)
             } else {
                 try await startSeparateMicrophoneCapture(microphone: microphone, directory: directory)
             }
@@ -434,10 +429,12 @@ final class LiveRecordingService: NSObject, ObservableObject {
         }
     }
 
-    private func chooseApplicationWithSystemPicker() async throws -> SCContentFilter {
+    private func chooseDisplayWithSystemPicker() async throws -> SCContentFilter {
         let picker = SCContentSharingPicker.shared
         var configuration = SCContentSharingPickerConfiguration()
-        configuration.allowedPickerModes = [.singleApplication]
+        // Meeting audio is often emitted by a helper or system process instead of the
+        // visible app. A display filter captures it; an app filter can deliver only silence.
+        configuration.allowedPickerModes = [.singleDisplay]
         configuration.excludedBundleIDs = [AppConfiguration.bundleIdentifier]
         configuration.allowsChangingSelectedContent = false
         picker.defaultConfiguration = configuration
@@ -448,43 +445,6 @@ final class LiveRecordingService: NSObject, ObservableObject {
             pickerContinuation = continuation
             picker.present()
         }
-    }
-
-    private func selectedApplicationDescription(from filter: SCContentFilter) -> String {
-        if #available(macOS 15.2, *) {
-            let names = filter.includedApplications.map(\.applicationName).filter { !$0.isEmpty }
-            return names.first ?? "Selected Mac app"
-        }
-        return "Selected Mac app"
-    }
-
-    @available(macOS 15.0, *)
-    private func startUnifiedCapture(
-        filter: SCContentFilter,
-        microphone: LiveMicrophoneDevice,
-        directory: URL
-    ) async throws {
-        let configuration = baseScreenConfiguration()
-        configuration.captureMicrophone = true
-        configuration.microphoneCaptureDeviceID = microphone.id
-
-        let sink = ScreenCaptureAudioSink(
-            outputURLs: [
-                .systemAudio: directory.appendingPathComponent(LiveAudioSource.systemAudio.filename),
-                .microphone: directory.appendingPathComponent(LiveAudioSource.microphone.filename)
-            ],
-            telemetryHandler: telemetryHandler
-        )
-        let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
-        do {
-            try stream.addStreamOutput(sink, type: .audio, sampleHandlerQueue: sink.queue)
-            try stream.addStreamOutput(sink, type: .microphone, sampleHandlerQueue: sink.queue)
-            try await stream.startCapture()
-        } catch {
-            throw LiveRecordingError.systemAudioUnavailable(error.localizedDescription)
-        }
-        screenSink = sink
-        screenStream = stream
     }
 
     private func startSystemAudioOnly(filter: SCContentFilter, directory: URL) async throws {
@@ -658,7 +618,7 @@ final class LiveRecordingService: NSObject, ObservableObject {
         captureDirectory = nil
         selectedMode = nil
         selectedMicrophone = nil
-        selectedApplicationName = ""
+        selectedContentDescription = ""
         startedAt = nil
         elapsedSeconds = 0
         sourceTelemetry = [:]
@@ -677,7 +637,7 @@ final class LiveRecordingService: NSObject, ObservableObject {
             createdAt: Date(),
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development",
             mode: selectedMode?.rawValue ?? "unknown",
-            selectedApplication: selectedApplicationName,
+            selectedContent: selectedContentDescription,
             selectedMicrophone: selectedMicrophone?.name ?? "Unknown microphone",
             expectedDurationSeconds: duration,
             artifacts: artifacts,
@@ -1137,64 +1097,105 @@ enum AudioLevelMeter {
     static let audibleRMSThreshold = 0.001
 
     static func rms(of sampleBuffer: CMSampleBuffer) -> Double {
-        guard let description = sampleBuffer.formatDescription else { return 0 }
-        let format = AVAudioFormat(cmAudioFormatDescription: description)
-        guard let pcmBuffer = AVAudioPCMBuffer(
-                pcmFormat: format,
-                frameCapacity: AVAudioFrameCount(sampleBuffer.numSamples)
-              ) else { return 0 }
-        pcmBuffer.frameLength = AVAudioFrameCount(sampleBuffer.numSamples)
-        let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
+        guard let description = sampleBuffer.formatDescription,
+              let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(description) else {
+            return 0
+        }
+        let format = streamDescription.pointee
+        guard format.mFormatID == kAudioFormatLinearPCM else { return 0 }
+
+        var requiredSize = 0
+        let sizeStatus = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
             sampleBuffer,
-            at: 0,
-            frameCount: Int32(sampleBuffer.numSamples),
-            into: pcmBuffer.mutableAudioBufferList
+            bufferListSizeNeededOut: &requiredSize,
+            bufferListOut: nil,
+            bufferListSize: 0,
+            blockBufferAllocator: nil,
+            blockBufferMemoryAllocator: nil,
+            flags: UInt32(kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment),
+            blockBufferOut: nil
         )
-        guard status == noErr else { return 0 }
+        guard sizeStatus == noErr, requiredSize >= MemoryLayout<AudioBufferList>.size else { return 0 }
+
+        let storage = UnsafeMutableRawPointer.allocate(byteCount: requiredSize, alignment: 16)
+        defer { storage.deallocate() }
+        let bufferList = storage.bindMemory(to: AudioBufferList.self, capacity: 1)
+        var retainedBlockBuffer: CMBlockBuffer?
+        let listStatus = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            sampleBuffer,
+            bufferListSizeNeededOut: nil,
+            bufferListOut: bufferList,
+            bufferListSize: requiredSize,
+            blockBufferAllocator: nil,
+            blockBufferMemoryAllocator: nil,
+            flags: UInt32(kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment),
+            blockBufferOut: &retainedBlockBuffer
+        )
+        guard listStatus == noErr else { return 0 }
 
         var sumSquares = 0.0
         var sampleCount = 0
-        for audioBuffer in UnsafeMutableAudioBufferListPointer(pcmBuffer.mutableAudioBufferList) {
+        for audioBuffer in UnsafeMutableAudioBufferListPointer(bufferList) {
             guard let data = audioBuffer.mData else { continue }
-            switch format.commonFormat {
-            case .pcmFormatFloat32:
+            let isFloat = format.mFormatFlags & kAudioFormatFlagIsFloat != 0
+            let isSignedInteger = format.mFormatFlags & kAudioFormatFlagIsSignedInteger != 0
+            let isBigEndian = format.mFormatFlags & kAudioFormatFlagIsBigEndian != 0
+            guard !isBigEndian else { continue }
+
+            switch (isFloat, isSignedInteger, format.mBitsPerChannel) {
+            case (true, _, 32):
                 let count = Int(audioBuffer.mDataByteSize) / MemoryLayout<Float>.size
                 let values = data.assumingMemoryBound(to: Float.self)
                 for index in 0..<count {
                     let value = Double(values[index])
-                    sumSquares += value * value
+                    if value.isFinite { sumSquares += value * value }
                 }
                 sampleCount += count
-            case .pcmFormatFloat64:
+            case (true, _, 64):
                 let count = Int(audioBuffer.mDataByteSize) / MemoryLayout<Double>.size
                 let values = data.assumingMemoryBound(to: Double.self)
                 for index in 0..<count {
                     let value = values[index]
-                    sumSquares += value * value
+                    if value.isFinite { sumSquares += value * value }
                 }
                 sampleCount += count
-            case .pcmFormatInt16:
+            case (false, true, 16):
                 let count = Int(audioBuffer.mDataByteSize) / MemoryLayout<Int16>.size
                 let values = data.assumingMemoryBound(to: Int16.self)
                 for index in 0..<count {
-                    let value = Double(values[index]) / Double(Int16.max)
+                    let value = Double(values[index]) / 32_768
                     sumSquares += value * value
                 }
                 sampleCount += count
-            case .pcmFormatInt32:
+            case (false, true, 32):
                 let count = Int(audioBuffer.mDataByteSize) / MemoryLayout<Int32>.size
                 let values = data.assumingMemoryBound(to: Int32.self)
                 for index in 0..<count {
-                    let value = Double(values[index]) / Double(Int32.max)
+                    let value = Double(values[index]) / 2_147_483_648
                     sumSquares += value * value
                 }
                 sampleCount += count
-            case .otherFormat:
-                break
-            @unknown default:
-                break
+            case (false, true, 8):
+                let count = Int(audioBuffer.mDataByteSize)
+                let values = data.assumingMemoryBound(to: Int8.self)
+                for index in 0..<count {
+                    let value = Double(values[index]) / 128
+                    sumSquares += value * value
+                }
+                sampleCount += count
+            case (false, false, 8):
+                let count = Int(audioBuffer.mDataByteSize)
+                let values = data.assumingMemoryBound(to: UInt8.self)
+                for index in 0..<count {
+                    let value = (Double(values[index]) - 128) / 128
+                    sumSquares += value * value
+                }
+                sampleCount += count
+            default:
+                continue
             }
         }
+        withExtendedLifetime(retainedBlockBuffer) {}
         guard sampleCount > 0 else { return 0 }
         return sqrt(sumSquares / Double(sampleCount))
     }
@@ -1366,7 +1367,7 @@ private struct LiveCaptureDiagnostics: Codable, Sendable {
     let createdAt: Date
     let appVersion: String
     let mode: String
-    let selectedApplication: String
+    let selectedContent: String
     let selectedMicrophone: String
     let expectedDurationSeconds: TimeInterval
     let artifacts: [LiveRecordingArtifact]

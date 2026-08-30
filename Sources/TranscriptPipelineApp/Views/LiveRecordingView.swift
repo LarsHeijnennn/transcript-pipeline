@@ -139,7 +139,7 @@ struct LiveRecordingView: View {
                             }
                         }
                     }
-                    Text("For a Teams call, choose the same microphone that Teams is using. What Was Said monitors this input independently during the recording.")
+                    Text("For a Teams or FaceTime call, choose the same microphone that the call is using. What Was Said records this input through an independent microphone session.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -149,7 +149,7 @@ struct LiveRecordingView: View {
                         "Recording is saved locally first. Nothing goes to OpenAI until you later click Process.",
                         systemImage: "lock.shield"
                     )
-                    Text("For Mac app audio, Apple’s system picker asks you to choose Teams, Zoom, FaceTime, or another app. Choose the whole app—not an individual call window—so all of that app’s audio is included. What Was Said excludes its own audio.")
+                    Text("For Mac audio, Apple’s system picker asks you to choose the display containing the call. This captures call audio even when Teams or FaceTime plays it through a helper process. It also captures other sounds on that display, while excluding What Was Said itself.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Toggle(
@@ -201,7 +201,7 @@ struct LiveRecordingView: View {
                     .font(.system(size: 34, weight: .medium, design: .monospaced))
                     .accessibilityLabel("Recording duration \(recorder.elapsedSeconds.clockString)")
                 if recorder.phase == .choosingContent {
-                    Text("Choose the meeting app in Apple’s picker—for example, Microsoft Teams. Its Mac audio and your selected microphone will be captured separately.")
+                    Text("Choose the display containing the call in Apple’s picker. Mac audio and your selected microphone will be captured through separate, independently monitored paths.")
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 390)

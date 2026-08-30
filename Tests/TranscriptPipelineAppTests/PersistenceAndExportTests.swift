@@ -222,6 +222,8 @@ final class PersistenceAndExportTests: XCTestCase {
         XCTAssertFalse(LiveRecordingMode.microphone.requiresScreenCapture)
         XCTAssertTrue(LiveRecordingMode.macAudioAndMicrophone.requiresScreenCapture)
         XCTAssertTrue(LiveRecordingMode.macAudioAndMicrophone.detail.contains("Teams"))
+        XCTAssertEqual(LiveRecordingMode.macAudioAndMicrophone.title, "Mac audio + microphone")
+        XCTAssertTrue(LiveRecordingMode.macAudioAndMicrophone.detail.contains("all audio playing on the Mac"))
     }
 
     func testAudioTrackMergerProducesReadableAAC() async throws {
@@ -307,7 +309,7 @@ final class PersistenceAndExportTests: XCTestCase {
 
         XCTAssertTrue(warnings.contains { $0.contains("Microphone contained samples but no audible sound") })
         XCTAssertTrue(warnings.contains { $0.contains("Microphone stopped early") })
-        XCTAssertTrue(warnings.contains { $0.contains("Mac app audio was not available") })
+        XCTAssertTrue(warnings.contains { $0.contains("Mac audio was not available") })
     }
 
     func testCaptureQualityAcceptsTwoHealthyContinuousSources() {

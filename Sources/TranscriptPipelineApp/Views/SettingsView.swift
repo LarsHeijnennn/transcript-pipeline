@@ -143,7 +143,7 @@ struct SettingsView: View {
 
             Section("Privacy and cost") {
                 Text("The API key is stored only in macOS Keychain. OpenAI receives selected audio for transcription and transcript text plus questions for notes or chat. The original audio and library remain local.")
-                Text("Live recordings are written to the local library first. Microphone and selected Mac app audio are not sent anywhere until you explicitly click Process on that recording.")
+                Text("Live recordings are written to the local library first. Microphone and Mac audio are not sent anywhere until you explicitly click Process on that recording.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text("OpenAI says API data is not used for training by default. Its current endpoint table lists no abuse-monitoring or application-state retention for audio transcriptions. Responses may retain abuse-monitoring logs for up to 30 days; store=false disables application-state storage, not those logs.")

@@ -4,7 +4,7 @@ Native, local-first macOS app for recording or importing meeting audio and turni
 
 ## Download
 
-**[Download What Was Said 1.3.2 for macOS →](https://github.com/LarsHeijnennn/what-was-said/releases/download/v1.3.2/What-Was-Said-unsigned.dmg)**
+**[Download What Was Said 1.3.3 for macOS →](https://github.com/LarsHeijnennn/what-was-said/releases/download/v1.3.3/What-Was-Said-unsigned.dmg)**
 
 For normal use, the DMG is all you need. It requires macOS 14 or newer on Apple silicon. The release is ad-hoc signed and not notarized, so macOS may ask you to open it with Control-click → **Open**; see [Opening the unsigned release](#opening-the-unsigned-release).
 
@@ -20,7 +20,7 @@ Ask Library retrieves relevant excerpts locally and sends only those excerpts an
 
 Developed by Lars Heijnen.
 
-Version 1.3.2 uses Apple's Liquid Glass APIs for the functional and navigation layer on macOS 26 or newer. Buttons, segmented navigation, pickers, the waveform scrubber, chat composer, recording controls, and speaker tools use native or grouped interactive glass. macOS 14–15 receive an equivalent system-material presentation with the same hierarchy, accessibility, and behavior.
+Version 1.3.3 uses Apple's Liquid Glass APIs for the functional and navigation layer on macOS 26 or newer. Buttons, segmented navigation, pickers, the waveform scrubber, chat composer, recording controls, and speaker tools use native or grouped interactive glass. macOS 14–15 receive an equivalent system-material presentation with the same hierarchy, accessibility, and behavior.
 
 The main window follows a focused two-column Mac pattern: destinations, smart views, folders, tags, and searchable recordings stay in the resizable sidebar while the selected recording gets the full workspace. Search covers transcript text, speakers, notes, action items, tags, and folders, and transcript results jump to their timestamp.
 
@@ -86,15 +86,15 @@ Supported input extensions: `mp3`, `mp4`, `mpeg`, `mpga`, `m4a`, `wav`, and `web
 Choose **Record** in the Library toolbar or press `⇧⌘R`:
 
 - **Microphone** records the input you choose for in-person conversations or a phone on speaker.
-- **Mac app + microphone** uses Apple's ScreenCaptureKit picker. Select the whole Teams, Zoom, FaceTime, WhatsApp, or other app whose audio should be captured, then choose the same microphone used by the meeting app.
+- **Mac audio + microphone** uses Apple's ScreenCaptureKit picker. Select the display containing the call, then choose the same microphone used by Teams, Zoom, FaceTime, WhatsApp, or the other meeting app. Display capture is deliberate: call audio is often emitted by a helper process rather than the visible app. Other sounds on that display are included; What Was Said excludes its own audio.
 
-On macOS 15 or newer, combined mode captures app audio and microphone audio as separate outputs from one synchronized ScreenCaptureKit stream. macOS 14 uses a monitored selected-device microphone session alongside ScreenCaptureKit. Live meters show whether each source is connected, audible, silent, stalled, or failed instead of treating the first buffer as proof that a source remains healthy.
+Combined mode captures Mac audio through ScreenCaptureKit and the selected microphone through an independent, monitored `AVCaptureSession` on every supported macOS version. Live meters show whether each source is connected, audible, silent, stalled, or failed instead of treating the first buffer as proof that a source remains healthy.
 
 Stopping validates both source durations, detects tracks that remained silent or stopped early, reports material buffer loss, preserves their relative start timing, and balances their levels before mixing. If one source fails, the usable source is still saved with a warning instead of losing the entire meeting. For combined recordings, the managed recording directory also retains the original microphone track, app-audio track, and a private capture diagnostics file under `Capture Sources` for recovery and troubleshooting.
 
-The first recording asks for macOS Microphone permission. For Mac-app audio, Apple’s system picker authorizes only the app selected for that capture session, so a separate full-screen grant is normally unnecessary. If macOS blocks either source, review What Was Said under **System Settings → Privacy & Security → Microphone** and **Screen & System Audio Recording**, then reopen the app.
+The first recording asks for macOS Microphone permission. For Mac audio, Apple’s system picker authorizes the display selected for that capture session. If macOS blocks either source, review What Was Said under **System Settings → Privacy & Security → Microphone** and **Screen & System Audio Recording**, then reopen the app.
 
-Recording is local. Stopping creates a normal library item; nothing is uploaded until **Process** is clicked. A Mac app cannot tap a cellular call that exists only on an iPhone. Route the call through the Mac, use informed speakerphone recording, or export a recording made through an available iPhone feature and import it afterward.
+Recording is local. Stopping creates a normal library item; nothing is uploaded until **Process** is clicked. The app cannot capture a cellular call that exists only on an iPhone. Route the call through the Mac, use informed speakerphone recording, or export a recording made through an available iPhone feature and import it afterward.
 
 ## Data flow
 
