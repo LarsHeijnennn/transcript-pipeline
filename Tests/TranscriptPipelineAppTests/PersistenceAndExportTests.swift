@@ -447,7 +447,8 @@ final class PersistenceAndExportTests: XCTestCase {
 
     private func firstAudioSampleBuffer(at url: URL) async throws -> CMSampleBuffer {
         let asset = AVURLAsset(url: url)
-        let track = try XCTUnwrap(try await asset.loadTracks(withMediaType: .audio).first)
+        let tracks = try await asset.loadTracks(withMediaType: .audio)
+        let track = try XCTUnwrap(tracks.first)
         let reader = try AVAssetReader(asset: asset)
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
             AVFormatIDKey: kAudioFormatLinearPCM,

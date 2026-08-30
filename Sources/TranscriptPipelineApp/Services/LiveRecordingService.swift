@@ -451,8 +451,11 @@ final class LiveRecordingService: NSObject, ObservableObject {
     }
 
     private func selectedApplicationDescription(from filter: SCContentFilter) -> String {
-        let names = filter.includedApplications.map(\.applicationName).filter { !$0.isEmpty }
-        return names.first ?? "Selected Mac app"
+        if #available(macOS 15.2, *) {
+            let names = filter.includedApplications.map(\.applicationName).filter { !$0.isEmpty }
+            return names.first ?? "Selected Mac app"
+        }
+        return "Selected Mac app"
     }
 
     @available(macOS 15.0, *)
@@ -900,21 +903,21 @@ private final class MicrophoneCaptureSession: NSObject, AVCaptureAudioDataOutput
             object: session,
             queue: nil
         ) { [weak self] notification in
-            let error = notification.userInfo?[AVCaptureSessionErrorKey] as? Error
-            self?.queue.async {
-                guard let self else { return }
-                self.restartIfNeeded(
-                    after: error?.localizedDescription ?? "The microphone capture session reported an error."
-                )
+            guard let capture = self else { return }
+            let detail = (notification.userInfo?[AVCaptureSessionErrorKey] as? Error)?.localizedDescription
+                ?? "The microphone capture session reported an error."
+            capture.queue.async {
+                capture.restartIfNeeded(after: detail)
             }
         })
         notificationTokens.append(center.addObserver(
             forName: AVCaptureSession.wasInterruptedNotification,
             object: session,
             queue: nil
-        ) { [weak self, weak writer] _ in
-            self?.queue.async {
-                writer?.recordIssue("The microphone was temporarily interrupted or taken by another application.")
+        ) { [weak self] _ in
+            guard let capture = self else { return }
+            capture.queue.async {
+                capture.writer.recordIssue("The microphone was temporarily interrupted or taken by another application.")
             }
         })
         notificationTokens.append(center.addObserver(
@@ -922,8 +925,9 @@ private final class MicrophoneCaptureSession: NSObject, AVCaptureAudioDataOutput
             object: session,
             queue: nil
         ) { [weak self] _ in
-            self?.queue.async {
-                self?.restartIfNeeded(after: "The microphone interruption ended.")
+            guard let capture = self else { return }
+            capture.queue.async {
+                capture.restartIfNeeded(after: "The microphone interruption ended.")
             }
         })
         notificationTokens.append(center.addObserver(
@@ -931,9 +935,10 @@ private final class MicrophoneCaptureSession: NSObject, AVCaptureAudioDataOutput
             object: session,
             queue: nil
         ) { [weak self] _ in
-            self?.queue.async {
-                guard let self, !self.stopped else { return }
-                self.restartIfNeeded(after: "The microphone capture session stopped unexpectedly.")
+            guard let capture = self else { return }
+            capture.queue.async {
+                guard !capture.stopped else { return }
+                capture.restartIfNeeded(after: "The microphone capture session stopped unexpectedly.")
             }
         })
     }

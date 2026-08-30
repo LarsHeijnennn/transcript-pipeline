@@ -82,114 +82,7 @@ struct RootView: View {
         ZStack {
             AppCanvas()
             NavigationSplitView {
-                List(selection: $navigationSelection) {
-                    Section {
-                        Label("Library", systemImage: "waveform")
-                            .symbolVariant(navigationSelection == .library ? .fill : .none)
-                            .tag(NavigationSelection.library)
-                        Label("Ask Library", systemImage: "books.vertical")
-                            .symbolVariant(navigationSelection == .libraryAsk ? .fill : .none)
-                            .tag(NavigationSelection.libraryAsk)
-                        Label("Settings", systemImage: "gearshape")
-                            .symbolVariant(navigationSelection == .settings ? .fill : .none)
-                            .tag(NavigationSelection.settings)
-                    }
-
-                    Section("Smart views") {
-                        ForEach(LibrarySmartFilter.allCases) { filter in
-                            Button {
-                                smartFilter = filter
-                                selectedFolder = nil
-                                selectedTag = nil
-                                navigationSelection = .library
-                            } label: {
-                                HStack {
-                                    Label(filter.title, systemImage: filter.symbol)
-                                    Spacer()
-                                    Text(filterCount(filter).formatted())
-                                        .font(.caption.monospacedDigit())
-                                        .foregroundStyle(.secondary)
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(smartFilter == filter && selectedFolder == nil && selectedTag == nil ? Color.accentColor : .primary)
-                        }
-                    }
-
-                    if !folders.isEmpty {
-                        Section("Folders") {
-                            ForEach(folders, id: \.self) { folder in
-                                Button {
-                                    selectedFolder = folder
-                                    selectedTag = nil
-                                    smartFilter = .all
-                                    navigationSelection = .library
-                                } label: {
-                                    Label(folder, systemImage: "folder")
-                                        .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(selectedFolder == folder ? Color.accentColor : .primary)
-                            }
-                        }
-                    }
-
-                    if !tags.isEmpty {
-                        Section("Tags") {
-                            ForEach(tags, id: \.self) { tag in
-                                Button {
-                                    selectedTag = tag
-                                    selectedFolder = nil
-                                    smartFilter = .all
-                                    navigationSelection = .library
-                                } label: {
-                                    Label(tag, systemImage: "tag")
-                                        .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(selectedTag == tag ? Color.accentColor : .primary)
-                            }
-                        }
-                    }
-
-                    Section("Recordings") {
-                        ForEach(filteredRecordings) { recording in
-                            RecordingRow(recording: recording, match: bestMatch(for: recording))
-                                .tag(NavigationSelection.recording(recording.id))
-                                .simultaneousGesture(TapGesture().onEnded {
-                                    if let match = bestMatch(for: recording), match.timestamp != nil {
-                                        searchTarget = SearchNavigationTarget(recordingID: recording.id, timestamp: match.timestamp)
-                                    }
-                                })
-                                .contextMenu {
-                                    Button(recording.isFavorite ? "Remove Favorite" : "Favorite", systemImage: recording.isFavorite ? "star.slash" : "star") {
-                                        recording.isFavorite.toggle()
-                                        recording.updatedAt = Date()
-                                        try? modelContext.save()
-                                    }
-                                    Button("Move to Trash", systemImage: "trash", role: .destructive) {
-                                        recordingToDelete = recording
-                                    }
-                                }
-                        }
-                        if recordings.isEmpty {
-                            Text("No recordings yet")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else if filteredRecordings.isEmpty {
-                            Label("No matches", systemImage: "magnifyingglass")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .listStyle(.sidebar)
-                .scrollContentBackground(.hidden)
-                .navigationTitle(AppConfiguration.displayName)
-                .frame(minWidth: 250, idealWidth: 300, maxWidth: 380)
-                .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 380)
-                .searchable(text: $searchText, placement: .sidebar, prompt: "Search recordings")
+                sidebar
             } detail: {
                 if navigationSelection == .settings {
                     SettingsView()
@@ -360,6 +253,145 @@ struct RootView: View {
         let extensionTypes = AppConfiguration.supportedExtensions.compactMap { UTType(filenameExtension: $0) }
         let archive = UTType(exportedAs: "nl.larsheijnen.transcriptpipeline.archive", conformingTo: .package)
         return Array(Set(extensionTypes + [.audio, .movie, archive]))
+    }
+
+    private var sidebar: some View {
+        List(selection: $navigationSelection) {
+            primaryNavigationSection
+            smartFilterNavigationSection
+            folderNavigationSection
+            tagNavigationSection
+            recordingNavigationSection
+        }
+        .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .navigationTitle(AppConfiguration.displayName)
+        .frame(minWidth: 250, idealWidth: 300, maxWidth: 380)
+        .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 380)
+        .searchable(text: $searchText, placement: .sidebar, prompt: "Search recordings")
+    }
+
+    private var primaryNavigationSection: some View {
+        Section {
+            Label("Library", systemImage: "waveform")
+                .symbolVariant(navigationSelection == .library ? .fill : .none)
+                .tag(NavigationSelection.library)
+            Label("Ask Library", systemImage: "books.vertical")
+                .symbolVariant(navigationSelection == .libraryAsk ? .fill : .none)
+                .tag(NavigationSelection.libraryAsk)
+            Label("Settings", systemImage: "gearshape")
+                .symbolVariant(navigationSelection == .settings ? .fill : .none)
+                .tag(NavigationSelection.settings)
+        }
+    }
+
+    private var smartFilterNavigationSection: some View {
+        Section("Smart views") {
+            ForEach(LibrarySmartFilter.allCases) { filter in
+                Button {
+                    smartFilter = filter
+                    selectedFolder = nil
+                    selectedTag = nil
+                    navigationSelection = .library
+                } label: {
+                    HStack {
+                        Label(filter.title, systemImage: filter.symbol)
+                        Spacer()
+                        Text(filterCount(filter).formatted())
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(
+                    smartFilter == filter && selectedFolder == nil && selectedTag == nil
+                        ? Color.accentColor
+                        : .primary
+                )
+            }
+        }
+    }
+
+    private var recordingNavigationSection: some View {
+        Section("Recordings") {
+            ForEach(filteredRecordings) { recording in
+                RecordingRow(recording: recording, match: bestMatch(for: recording))
+                    .tag(NavigationSelection.recording(recording.id))
+                    .simultaneousGesture(TapGesture().onEnded {
+                        if let match = bestMatch(for: recording), match.timestamp != nil {
+                            searchTarget = SearchNavigationTarget(
+                                recordingID: recording.id,
+                                timestamp: match.timestamp
+                            )
+                        }
+                    })
+                    .contextMenu {
+                        Button(
+                            recording.isFavorite ? "Remove Favorite" : "Favorite",
+                            systemImage: recording.isFavorite ? "star.slash" : "star"
+                        ) {
+                            recording.isFavorite.toggle()
+                            recording.updatedAt = Date()
+                            try? modelContext.save()
+                        }
+                        Button("Move to Trash", systemImage: "trash", role: .destructive) {
+                            recordingToDelete = recording
+                        }
+                    }
+            }
+            if recordings.isEmpty {
+                Text("No recordings yet")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if filteredRecordings.isEmpty {
+                Label("No matches", systemImage: "magnifyingglass")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var folderNavigationSection: some View {
+        if !folders.isEmpty {
+            Section("Folders") {
+                ForEach(folders, id: \.self) { folder in
+                    Button {
+                        selectedFolder = folder
+                        selectedTag = nil
+                        smartFilter = .all
+                        navigationSelection = .library
+                    } label: {
+                        Label(folder, systemImage: "folder")
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(selectedFolder == folder ? Color.accentColor : .primary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var tagNavigationSection: some View {
+        if !tags.isEmpty {
+            Section("Tags") {
+                ForEach(tags, id: \.self) { tag in
+                    Button {
+                        selectedTag = tag
+                        selectedFolder = nil
+                        smartFilter = .all
+                        navigationSelection = .library
+                    } label: {
+                        Label(tag, systemImage: "tag")
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(selectedTag == tag ? Color.accentColor : .primary)
+                }
+            }
+        }
     }
 
     private var libraryContextTitle: String {

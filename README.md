@@ -4,7 +4,7 @@ Native, local-first macOS app for recording or importing meeting audio and turni
 
 ## Download
 
-**[Download What Was Said 1.3.1 for macOS →](https://github.com/LarsHeijnennn/what-was-said/releases/download/v1.3.1/What-Was-Said-unsigned.dmg)**
+**[Download What Was Said 1.3.2 for macOS →](https://github.com/LarsHeijnennn/what-was-said/releases/download/v1.3.2/What-Was-Said-unsigned.dmg)**
 
 For normal use, the DMG is all you need. It requires macOS 14 or newer on Apple silicon. The release is ad-hoc signed and not notarized, so macOS may ask you to open it with Control-click → **Open**; see [Opening the unsigned release](#opening-the-unsigned-release).
 
@@ -20,7 +20,7 @@ Ask Library retrieves relevant excerpts locally and sends only those excerpts an
 
 Developed by Lars Heijnen.
 
-Version 1.3.1 uses Apple's Liquid Glass APIs for the functional and navigation layer on macOS 26 or newer. Buttons, segmented navigation, pickers, the waveform scrubber, chat composer, recording controls, and speaker tools use native or grouped interactive glass. macOS 14–15 receive an equivalent system-material presentation with the same hierarchy, accessibility, and behavior.
+Version 1.3.2 uses Apple's Liquid Glass APIs for the functional and navigation layer on macOS 26 or newer. Buttons, segmented navigation, pickers, the waveform scrubber, chat composer, recording controls, and speaker tools use native or grouped interactive glass. macOS 14–15 receive an equivalent system-material presentation with the same hierarchy, accessibility, and behavior.
 
 The main window follows a focused two-column Mac pattern: destinations, smart views, folders, tags, and searchable recordings stay in the resizable sidebar while the selected recording gets the full workspace. Search covers transcript text, speakers, notes, action items, tags, and folders, and transcript results jump to their timestamp.
 
